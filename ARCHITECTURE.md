@@ -81,17 +81,17 @@ To keep embedding costs at practically zero and process massive libraries except
 
 ```mermaid
 flowchart LR
-    Docs[PDF, DOCX, MD, PPTX] -->|CLI upload.py| Vol{Modal Cloud Volume \n `/acaicia-data-volume`}
-    Metadata[metadata.json] -->|Mapped Variables| Vol
+    Docs["PDF, DOCX, MD, PPTX"] -->|CLI upload.py| Vol{"Modal Cloud Volume \n /acaicia-data-volume"}
+    Metadata["metadata.json"] -->|Mapped Variables| Vol
     
-    Vol -->|Run| App1[Modal Serverless App]
+    Vol -->|Run| App1["Modal Serverless App"]
     
     subgraph Container Operations
     direction TB
-    App1 --> Parser[PyMuPDF / docx Parser]
-    Parser --> Chunking[LangChain RecursiveSplitter\n(2500 char shards)]
-    Chunking --> Model[BAAI/bge-base-en-v1.5 \n HuggingFace GPU Model]
-    Model --> Vectors[768 Dimension Arrays]
+    App1 --> Parser["PyMuPDF / docx Parser"]
+    Parser --> Chunking["LangChain RecursiveSplitter\n(2500 char shards)"]
+    Chunking --> Model["BAAI/bge-base-en-v1.5 \n HuggingFace GPU Model"]
+    Model --> Vectors["768 Dimension Arrays"]
     end
     
     Vectors -->|Upload| DB_Vectors[Supabase `document_embeddings`]
