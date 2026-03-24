@@ -1,0 +1,19 @@
+# Modal & Backend Core
+modal
+fastapi[standard]
+pydantic
+
+# Database & LLM Integrations
+supabase
+google-genai
+
+# Ingestion Pipeline
+python-dotenv
+langchain-text-splitters
+PyMuPDF
+python-docx
+python-pptx
+
+# Frontend UI
+streamlit
+requests
