@@ -89,3 +89,68 @@ sequenceDiagram
 To measure API performance, track latency bottlenecks, and account for API token usage securely, the FastAPI backend passes a telemetry dictionary through every node step. 
 
 Crucially, rather than making the user wait for logging to finish, the Backend returns its payload to the Streamlit UI immediately, while utilizing FastAPI's `BackgroundTasks` to invisibly flush the telemetry array into Supabase's `query_interaction_logs` database table.
+
+---
+
+## 5. Dynamic LLM Provider Routing
+
+acAIcia supports three distinct Large Language Model (LLM) backend providers. The active provider is resolved dynamically on each query.
+
+### A. Provider Resolution Logic
+When handling a query or settings request, the backend determines the active provider by checking configurations in the following order of precedence:
+1. **Persistent Volume Storage:** Reads `/data/settings.json` on the Modal persistent volume `acaicia-data-volume`. If a valid `llm_provider` exists (i.e. `gemini`, `nvidia`, or `modal`), it takes precedence.
+2. **Environment Variable:** Checks `LLM_PROVIDER` in Modal secrets or the local environment.
+3. **Legacy Flags:** Falls back to checking `USE_NVIDIA="true"` to trigger the NVIDIA provider, or defaults to `gemini` if no keys are found.
+
+### B. Supported Providers & Models
+
+| Provider | Agent Type | Active Model | Notes / Key Configs |
+| :--- | :--- | :--- | :--- |
+| **Google Gemini API** *(Default)* | Guardian / Architect<br>Synthesis | `gemini-2.5-flash`<br>`gemini-2.5-pro` | Requires `GOOGLE_API_KEY` |
+| **NVIDIA NIM API** | Guardian / Architect<br>Synthesis | `meta/llama-3.1-8b-instruct`<br>`meta/llama-3.3-70b-instruct` | Requires `NVIDIA_API_KEY`<br>Temperature: 0.20, Top-p: 0.70 |
+| **Modal Gemma 4** *(Self-Hosted)* | Guardian / Architect / Synthesis | `google/gemma-4-E2B-it` | Requires `HF_TOKEN` (for gated access)<br>Runs on L4 GPU serverless instance<br>Uses recommended sampling: Temp 1.0, Top-p 0.95, Top-k 64 |
+
+### C. Self-Hosted Gemma 4 Inference Service
+The self-hosted Gemma 4 service is defined in `backend/gemma_inference.py` as an independent Modal App (`acaicia-gemma-inference`).
+- **Hardware:** Runs on an NVIDIA L4 GPU (`gpu="L4"`) in `bfloat16` precision to balance speed and accuracy.
+- **Model Access:** Downloads `google/gemma-4-E2B-it` from Hugging Face, requiring a valid Hugging Face API token (`HF_TOKEN`) configured in the `acaicia-llm-secrets` Modal Secret.
+- **Interface & Communication:** Exposes a `@modal.method()` called `generate(...)` that accepts parameters such as `prompt`, `temperature`, `top_p`, `top_k`, and `max_tokens`. The main backend calls this method using:
+  ```python
+  gemma_func = modal.Function.from_name("acaicia-gemma-inference", "GemmaModel.generate")
+  text = gemma_func.remote(prompt=prompt, temperature=1.0, top_p=0.95, top_k=64, max_tokens=max_tokens)
+  ```
+- **Special Optimizations:** Disables `<|think|>` tokens natively by default, resulting in clean, direct answers suitable for scientific/academic querying.
+
+### D. Settings Management API Endpoints
+
+The FastAPI backend exposes endpoints to manage the active LLM configuration dynamically:
+
+#### 1. `GET /settings`
+Fetches current configuration settings.
+* **Response Payload Example (`SettingsResponse`):**
+  ```json
+  {
+    "llm_provider": "modal",
+    "google_api_key_configured": true,
+    "nvidia_api_key_configured": false,
+    "hf_token_configured": true,
+    "active_source": "volume"
+  }
+  ```
+* **Fields:**
+  - `llm_provider`: The currently active provider (`gemini` / `nvidia` / `modal`).
+  - `google_api_key_configured`: Boolean indicating whether `GOOGLE_API_KEY` is set.
+  - `nvidia_api_key_configured`: Boolean indicating whether `NVIDIA_API_KEY` is set.
+  - `hf_token_configured`: Boolean indicating whether `HF_TOKEN` is set.
+  - `active_source`: Source of the active provider configuration (`volume` if loaded from persistent settings volume, `env` if loaded from environment, or `default` fallback).
+
+#### 2. `POST /settings`
+Updates the active LLM provider.
+* **Request Payload Example (`SettingsRequest`):**
+  ```json
+  {
+    "llm_provider": "modal"
+  }
+  ```
+* **Behavior:** Reloads the persistent `acaicia-data-volume`, writes the configuration object `{"llm_provider": "modal"}` to `/data/settings.json`, and commits/flushes the volume changes to ensure persistence across all serverless API instances.
+

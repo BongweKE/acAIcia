@@ -39,37 +39,66 @@ modal secret create acaicia-db-secrets \
 ```
 
 **2. LLM Secret:**
-Provide the Google AI Studio API for the pipeline agents:
+Provide the API keys and configuration credentials for the pipeline agents. You must include a Hugging Face API token (`HF_TOKEN`) with access to `google/gemma-4-E2B-it` if you intend to run the self-hosted Gemma 4 Model.
+
+To configure this easily, use the provided interactive script in the root directory:
 ```bash
-modal secret create acaicia-llm-secrets \
-    GOOGLE_API_KEY="your-google-ai-studio-key"
+./update_secrets.sh
 ```
+*(Alternatively, configure manually: `modal secret create acaicia-llm-secrets LLM_PROVIDER="modal" GOOGLE_API_KEY="..." NVIDIA_API_KEY="..." HF_TOKEN="..." USE_NVIDIA="false"`)*
+
+> [!WARNING]
+> **Container Lifecycle and Secrets Cache:** Modal keeps container instances warm to minimize cold starts. When you update Modal secrets (e.g. updating API keys), currently warm containers will **NOT** automatically pick up the new secret values. You must stop the warm instances (e.g., `modal app stop acaicia-backend`) or redeploy them to force Modal to spin up fresh container instances loading the new secret payloads.
 
 ---
 
-## 3. Operations & Production Servers
+## 3. Administration & Server Deployments
 
-### A. Testing the Backend
-Navigate to the `backend` folder. Serve an ephemeral API on a development URL (hot-reloads on save):
+We provide a comprehensive command-line administration tool `cli_admin.py` in the root directory to handle LLM settings configuration and deployments interactively.
 
+### A. Using the CLI Admin Tool
+Run the administration console from your project root:
+```bash
+python cli_admin.py
+```
+This tool offers an interactive menu:
+1. **Configure Local & Modal Cloud LLM Settings:** Prompts you to choose your LLM provider (`gemini`, `nvidia`, or `modal`), input API keys (`GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `HF_TOKEN`), writes them to a local `backend/.env` file, updates the `acaicia-llm-secrets` secret on Modal, and attempts to sync the active LLM provider choice directly with the persistent volume `/data/settings.json` on your deployed backend.
+2. **Deploy Gemma 4 Inference App to Modal:** Packages and deploys the independent model server `gemma_inference.py`.
+3. **Deploy Main FastAPI Backend App to Modal:** Packages and deploys the router API `app.py`.
+
+---
+
+## 4. Manual Deployment Flow
+
+If you prefer to deploy files manually without the CLI tool:
+
+### A. Deploying the Gemma 4 Inference App
+Before deploying the main backend, you must deploy the Gemma 4 model server so the backend can locate and query it:
+```bash
+modal deploy backend/gemma_inference.py
+```
+*This handles downloading the model weights and hosting the model as a remote service named `acaicia-gemma-inference` on serverless L4 GPUs.*
+
+### B. Testing the Backend Locally/Ephemerally
+Navigate to the `backend` folder and serve an ephemeral router API on a development URL (auto-reloads on save):
 ```bash
 cd backend
 modal serve app.py
 ```
 
-### B. Permanent Deployment
-Push the backend natively to an assigned persistent HTTP URL on Modal's network:
-
+### C. Deploying the Main Backend App
+Push the main router API to a persistent HTTP endpoint on Modal's serverless network:
 ```bash
+cd backend
 modal deploy app.py
 ```
-*Note this URL explicitly, as the Frontend will require it over REST.*
+*Note this URL explicitly (e.g. `https://<username>--acaicia-backend-fastapi-app-entrypoint.modal.run`), as the Frontend Streamlit configuration will require it.*
 
 ---
 
-## 4. Frontend Launch (Streamlit)
+## 5. Frontend Launch (Streamlit)
 
-Before launching, navigate to `frontend/app.py` and modify `BACKEND_URL` to match the persistent endpoint assigned to your API in step 3B. 
+Before launching, navigate to `frontend/app.py` and modify `BACKEND_URL` to match the persistent endpoint assigned to your API in step 4C. 
 
 To run it locally:
 ```bash

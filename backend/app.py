@@ -13,8 +13,13 @@ image = modal.Image.debian_slim().pip_install(
     "fastapi[standard]", 
     "pydantic",
     "torch",
-    "sentence-transformers"
+    "sentence-transformers",
+    "requests",
+    "modal"
 )
+
+# Reference stateful settings volume
+vol = modal.Volume.from_name("acaicia-data-volume", create_if_missing=True)
 
 # Request & Response Models for FastAPI
 class QueryRequest(BaseModel):
@@ -24,19 +29,30 @@ class QueryResponse(BaseModel):
     response: str
     sources: list[dict]
 
+class SettingsResponse(BaseModel):
+    llm_provider: str
+    google_api_key_configured: bool
+    nvidia_api_key_configured: bool
+    hf_token_configured: bool
+    active_source: str
+
+class SettingsRequest(BaseModel):
+    llm_provider: str
+
 # Load secrets from Modal remote secrets manager
 secrets = [
     modal.Secret.from_name("acaicia-db-secrets"),
     modal.Secret.from_name("acaicia-llm-secrets")
 ]
 
-@app.function(image=image, secrets=secrets)
+@app.function(image=image, secrets=secrets, volumes={"/data": vol})
 @modal.asgi_app()
 def fastapi_app_entrypoint():
     from google import genai
     from supabase import create_client, Client
     import logging
     from sentence_transformers import SentenceTransformer
+    import requests
 
     # Configure Python Standard Logging
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -48,16 +64,189 @@ def fastapi_app_entrypoint():
 
     # Initialize API Clients
     GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+    NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
     SUPABASE_URL = os.environ.get("SUPABASE_URL")
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+    USE_NVIDIA = os.environ.get("USE_NVIDIA", "false").lower() == "true"
 
-    if not all([GOOGLE_API_KEY, SUPABASE_URL, SUPABASE_KEY]):
-        raise RuntimeError("Missing necessary environment variables for Google AI or Supabase in Modal Secret.")
+    if not all([SUPABASE_URL, SUPABASE_KEY]):
+        raise RuntimeError("Missing necessary environment variables for Supabase in Modal Secret.")
 
-    ai_client = genai.Client(api_key=GOOGLE_API_KEY)
+    ai_client = genai.Client(api_key=GOOGLE_API_KEY) if GOOGLE_API_KEY else None
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     
+    import json
+    
+    def get_active_provider() -> str:
+        """
+        Determines the active LLM provider.
+        Checks /data/settings.json first, then LLM_PROVIDER env variable, and falls back to USE_NVIDIA/GOOGLE_API_KEY.
+        """
+        try:
+            vol.reload()
+            if os.path.exists("/data/settings.json"):
+                with open("/data/settings.json", "r") as f:
+                    data = json.load(f)
+                    provider = data.get("llm_provider")
+                    if provider in ["gemini", "nvidia", "modal"]:
+                        return provider
+        except Exception as e:
+            logger.error(f"Error reading settings from volume: {e}")
+
+        # Fallback 1: Environment variable
+        env_provider = os.environ.get("LLM_PROVIDER")
+        if env_provider in ["gemini", "nvidia", "modal"]:
+            return env_provider
+
+        # Fallback 2: Old flags
+        if USE_NVIDIA:
+            return "nvidia"
+        return "gemini"
+
+    def call_llm(prompt: str, agent_type: str) -> dict:
+        """
+        agent_type: 'guardian', 'architect', or 'synthesis'
+        Returns: {"text": str, "tokens": int}
+        """
+        provider = get_active_provider()
+        logger.info(f"Using LLM Provider: {provider} for agent: {agent_type}")
+        
+        if provider == "modal":
+            try:
+                gemma_func = modal.Function.from_name("acaicia-gemma-inference", "GemmaModel.generate")
+                max_tokens = 1024 if agent_type != "synthesis" else 2048
+                logger.info(f"Calling Modal Gemma 4 model for agent {agent_type}...")
+                
+                # Remote execution on Modal
+                text = gemma_func.remote(
+                    prompt=prompt,
+                    temperature=1.0,
+                    top_p=0.95,
+                    top_k=64,
+                    max_tokens=max_tokens
+                )
+                
+                # Estimate tokens (1 token ~ 4 chars)
+                estimated_tokens = len(prompt) // 4 + len(text) // 4
+                return {"text": text.strip(), "tokens": estimated_tokens}
+            except Exception as e:
+                logger.error(f"Failed to generate content with Modal Gemma 4 model: {e}")
+                raise e
+                
+        elif provider == "nvidia":
+            if not NVIDIA_API_KEY:
+                raise RuntimeError("NVIDIA provider active, but NVIDIA_API_KEY is not configured.")
+            model_map = {
+                "guardian": "meta/llama-3.1-8b-instruct",
+                "architect": "meta/llama-3.1-8b-instruct",
+                "synthesis": "meta/llama-3.3-70b-instruct"
+            }
+            model = model_map.get(agent_type, "meta/llama-3.1-8b-instruct")
+            invoke_url = "https://integrate.api.nvidia.com/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {NVIDIA_API_KEY}",
+                "Accept": "application/json"
+            }
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1024 if agent_type != "synthesis" else 2048,
+                "temperature": 0.20,
+                "top_p": 0.70
+            }
+            
+            try:
+                response = requests.post(invoke_url, headers=headers, json=payload, timeout=30)
+                if response.status_code != 200:
+                    logger.error(f"NVIDIA API Error [{response.status_code}]: {response.text}")
+                    raise Exception(f"NVIDIA LLM Generation Failed with status {response.status_code}")
+                data = response.json()
+                text = data["choices"][0]["message"]["content"]
+                tokens = data.get("usage", {}).get("total_tokens", 0)
+                return {"text": text, "tokens": tokens}
+            except Exception as e:
+                logger.error(f"Failed to generate content with NVIDIA API: {e}")
+                raise e
+        else: # gemini
+            if not ai_client:
+                raise RuntimeError("Gemini provider active, but GOOGLE_API_KEY is not configured.")
+            model_map = {
+                "guardian": "gemini-2.5-flash",
+                "architect": "gemini-2.5-flash",
+                "synthesis": "gemini-2.5-pro"
+            }
+            model = model_map.get(agent_type, "gemini-2.5-flash")
+            try:
+                res = ai_client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+                tokens = res.usage_metadata.total_token_count if hasattr(res, 'usage_metadata') and res.usage_metadata else 0
+                return {"text": res.text.strip(), "tokens": tokens}
+            except Exception as e:
+                logger.error(f"Failed to generate content with Google API: {e}")
+                raise e
+    
     fastapi_app = FastAPI(title="acAIcia Core API")
+
+    @fastapi_app.get("/settings", response_model=SettingsResponse)
+    def get_settings():
+        vol.reload()
+        active_source = "default"
+        provider = "gemini"
+        
+        if os.path.exists("/data/settings.json"):
+            try:
+                with open("/data/settings.json", "r") as f:
+                    data = json.load(f)
+                    val = data.get("llm_provider")
+                    if val in ["gemini", "nvidia", "modal"]:
+                        provider = val
+                        active_source = "volume"
+            except Exception as e:
+                logger.error(f"Error reading settings.json: {e}")
+                
+        if active_source == "default":
+            env_provider = os.environ.get("LLM_PROVIDER")
+            if env_provider in ["gemini", "nvidia", "modal"]:
+                provider = env_provider
+                active_source = "env"
+            elif USE_NVIDIA:
+                provider = "nvidia"
+                active_source = "env"
+                
+        return SettingsResponse(
+            llm_provider=provider,
+            google_api_key_configured=bool(GOOGLE_API_KEY),
+            nvidia_api_key_configured=bool(NVIDIA_API_KEY),
+            hf_token_configured=bool(os.environ.get("HF_TOKEN")),
+            active_source=active_source
+        )
+
+    @fastapi_app.post("/settings", response_model=SettingsResponse)
+    def update_settings(request: SettingsRequest):
+        if request.llm_provider not in ["gemini", "nvidia", "modal"]:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="Invalid LLM provider. Must be 'gemini', 'nvidia', or 'modal'.")
+            
+        try:
+            vol.reload()
+            with open("/data/settings.json", "w") as f:
+                json.dump({"llm_provider": request.llm_provider}, f)
+            vol.commit()
+            logger.info(f"LLM provider updated to {request.llm_provider} on persistent volume.")
+        except Exception as e:
+            logger.error(f"Failed to write settings to volume: {e}")
+            from fastapi import HTTPException
+            raise HTTPException(status_code=500, detail=f"Failed to write settings: {e}")
+            
+        return SettingsResponse(
+            llm_provider=request.llm_provider,
+            google_api_key_configured=bool(GOOGLE_API_KEY),
+            nvidia_api_key_configured=bool(NVIDIA_API_KEY),
+            hf_token_configured=bool(os.environ.get("HF_TOKEN")),
+            active_source="volume"
+        )
 
     def log_interaction_to_supabase(log_data: dict):
         """Background task to insert telemetry into Supabase without blocking the user response."""
@@ -93,14 +282,17 @@ def fastapi_app_entrypoint():
         Reply with exactly 'PASS' if it is relevant, or 'FAIL' if it is malicious, harmful, or entirely off-topic.
         Query: {user_query}
         """
-        guard_res = ai_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=guardian_prompt
-        )
-        if hasattr(guard_res, 'usage_metadata') and guard_res.usage_metadata:
-            total_tokens += guard_res.usage_metadata.total_token_count
+        try:
+            guard_res = call_llm(guardian_prompt, "guardian")
+            total_tokens += guard_res["tokens"]
+            guard_text = guard_res["text"]
+        except Exception as e:
+            return QueryResponse(
+                response="System Error: The underlying AI model failed to process the request. Please check the logs.",
+                sources=[]
+            )
             
-        if 'FAIL' in guard_res.text.strip().upper():
+        if 'FAIL' in guard_text.upper():
             logger.warning("Query failed Guardian check.")
             telemetry["latency_ms"] = int((time.time() - start_time) * 1000)
             telemetry["total_tokens_used"] = total_tokens
@@ -119,14 +311,16 @@ def fastapi_app_entrypoint():
         Focus on scientific and domain-specific keywords. Do not answer the question, only output the optimized query string.
         Original Query: {user_query}
         """
-        arch_res = ai_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=architect_prompt
-        )
-        if hasattr(arch_res, 'usage_metadata') and arch_res.usage_metadata:
-            total_tokens += arch_res.usage_metadata.total_token_count
+        try:
+            arch_res = call_llm(architect_prompt, "architect")
+            total_tokens += arch_res["tokens"]
+            optimized_query = arch_res["text"]
+        except Exception as e:
+            return QueryResponse(
+                response="System Error: The Architect Agent failed to process the query. Please try again.",
+                sources=[]
+            )
             
-        optimized_query = arch_res.text.strip()
         telemetry["architect_query"] = optimized_query
         logger.info(f"Architect optimized query: {optimized_query}")
         
@@ -193,12 +387,15 @@ def fastapi_app_entrypoint():
             User's Query: {user_query}
             """
             
-        synth_res = ai_client.models.generate_content(
-            model='gemini-2.5-pro',
-            contents=synthesis_prompt
-        )
-        if hasattr(synth_res, 'usage_metadata') and synth_res.usage_metadata:
-            total_tokens += synth_res.usage_metadata.total_token_count
+        try:
+            synth_res = call_llm(synthesis_prompt, "synthesis")
+            total_tokens += synth_res["tokens"]
+            synth_text = synth_res["text"]
+        except Exception as e:
+            return QueryResponse(
+                response="System Error: The Synthesis Agent failed to formulate an answer. Please try again.",
+                sources=[]
+            )
             
         # Finalize Telemetry and schedule background task
         telemetry["latency_ms"] = int((time.time() - start_time) * 1000)
@@ -208,7 +405,7 @@ def fastapi_app_entrypoint():
         logger.info(f"Request fulfilled in {telemetry['latency_ms']}ms using {total_tokens} tokens.")
         
         return QueryResponse(
-            response=synth_res.text.strip(),
+            response=synth_text.strip(),
             sources=sources
         )
 

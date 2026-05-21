@@ -21,34 +21,38 @@ We maintain comprehensive documentation for all major components and logic chain
 
 ---
 
-## Quick Start (Local Run)
+## Quick Start (Interactive Administration)
 
-1. **Setup Secrets on Modal**:
+For the easiest setup, we provide an interactive command-line administration tool to configure secrets, manage the LLM provider state, and handle deployments.
+
+1. **Setup Database Secret**:
+   Configure your Supabase connection on Modal:
    ```bash
-   modal secret create acaicia-db-secrets SUPABASE_URL="..." SUPABASE_KEY="..."
-   modal secret create acaicia-llm-secrets GOOGLE_API_KEY="..."
+   modal secret create acaicia-db-secrets SUPABASE_URL="https://your-project.supabase.co" SUPABASE_KEY="your-service-role-key"
    ```
 
-2. **Ingest Documents**:
-   Place files inside `ingestion/data/` and push them to the persistent Modal volume:
+2. **Configure Settings & Deploy via CLI**:
+   Run the interactive administration tool from the root directory:
+   ```bash
+   python cli_admin.py
+   ```
+   - Select option **1** to configure your LLM credentials (including the optional Hugging Face `HF_TOKEN` for self-hosted Gemma 4) and sync settings.
+   - Select option **2** to deploy the Gemma 4 Inference app (`gemma_inference.py`) to Modal.
+   - Select option **3** to deploy the main FastAPI Backend router app (`app.py`) to Modal.
+
+3. **Ingest Documents**:
+   Place PDF/DOCX files inside `ingestion/data/` and push them to the persistent Modal volume:
    ```bash
    cd ingestion
    pip install -r requirements.txt
    python upload.py
    ```
 
-3. **Serve Backend**:
-   Spin up the hot-reload FastAPI instance in the cloud:
-   ```bash
-   cd backend
-   modal serve app.py
-   ```
-
 4. **Launch Application**:
-   Boot up the Streamlit interface (Remember to update the `BACKEND_URL` in `app.py` first):
+   Boot up the Streamlit interface (Remember to update the `BACKEND_URL` inside [frontend/app.py](frontend/app.py) to point to your deployed Modal FastAPI backend first):
    ```bash
    cd frontend
    streamlit run app.py
    ```
 
-For detailed deployment parameters and structural deep dives, refer to the [Documentation Index](#documentation-index).
+For manual deployment workflows, container secrets caching warnings, and structural deep dives, refer to the [Documentation Index](#documentation-index).

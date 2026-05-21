@@ -11,6 +11,70 @@ st.set_page_config(
     layout="centered"
 )
 
+# Fetch settings on load
+SETTINGS_URL = BACKEND_URL.replace("/query", "/settings")
+
+@st.cache_data(ttl=10)  # cache settings retrieval briefly
+def fetch_settings():
+    try:
+        response = requests.get(SETTINGS_URL, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        pass
+    return None
+
+# Sidebar config
+st.sidebar.title("🌿 Admin Control Console")
+st.sidebar.markdown("Configure core settings and LLM parameters for acAIcia.")
+
+settings = fetch_settings()
+
+if settings:
+    current_provider = settings.get("llm_provider", "gemini")
+    
+    st.sidebar.subheader("LLM Provider Setup")
+    provider_options = {
+        "gemini": "Google Gemini API",
+        "nvidia": "NVIDIA NIM API",
+        "modal": "Modal Gemma 4 (Self-Hosted)"
+    }
+    
+    # Pre-select based on remote configuration
+    try:
+        provider_index = list(provider_options.keys()).index(current_provider)
+    except ValueError:
+        provider_index = 0
+        
+    selected_option = st.sidebar.radio(
+        "Active Model Provider",
+        options=list(provider_options.keys()),
+        format_func=lambda x: provider_options[x],
+        index=provider_index
+    )
+    
+    # Save button
+    if st.sidebar.button("Apply & Save Settings", use_container_width=True):
+        try:
+            res = requests.post(SETTINGS_URL, json={"llm_provider": selected_option}, timeout=10)
+            if res.status_code == 200:
+                st.sidebar.success(f"Successfully switched to {provider_options[selected_option]}!")
+                st.cache_data.clear() # clear cache to refetch
+                st.rerun()
+            else:
+                st.sidebar.error(f"Failed to update settings: {res.text}")
+        except Exception as e:
+            st.sidebar.error(f"Error connecting to settings API: {e}")
+            
+    st.sidebar.divider()
+    st.sidebar.subheader("System Credentials Status")
+    st.sidebar.markdown(f"- **Google API Key:** {'✅ Configured' if settings.get('google_api_key_configured') else '❌ Missing'}")
+    st.sidebar.markdown(f"- **NVIDIA API Key:** {'✅ Configured' if settings.get('nvidia_api_key_configured') else '❌ Missing'}")
+    st.sidebar.markdown(f"- **Hugging Face Token:** {'✅ Configured' if settings.get('hf_token_configured') else '⚠️ Missing (required for Gemma 4)'}")
+    st.sidebar.markdown(f"- **Active Configuration Source:** `{settings.get('active_source', 'default')}`")
+else:
+    st.sidebar.warning("Could not fetch remote configuration from backend settings API. Operating with fallback default provider.")
+
 st.title("acAIcia")
 st.subheader("CIFOR-ICRAF Expert Research Assistant")
 st.markdown("Ask questions related to forestry, agroforestry, climate change, and CIFOR-ICRAF research.")
