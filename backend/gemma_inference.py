@@ -9,7 +9,8 @@ image = modal.Image.debian_slim().pip_install(
     "transformers",
     "torch",
     "accelerate",
-    "huggingface_hub"
+    "huggingface_hub",
+    "hf_transfer"
 )
 
 # Use the same LLM secrets name as defined in acAIcia
@@ -17,10 +18,21 @@ secrets = [
     modal.Secret.from_name("acaicia-llm-secrets")
 ]
 
-@app.cls(image=image, gpu="L4", secrets=secrets, timeout=900)
+# Define Hugging Face cache volume
+hf_cache_vol = modal.Volume.from_name("acaicia-hf-cache", create_if_missing=True)
+
+@app.cls(
+    image=image, 
+    gpu="L4", 
+    secrets=secrets, 
+    volumes={"/root/.cache/huggingface": hf_cache_vol}, 
+    timeout=900
+)
 class GemmaModel:
     @modal.enter()
     def load_model(self):
+        import os
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
         import torch
         from transformers import pipeline
         
@@ -40,6 +52,13 @@ class GemmaModel:
             token=hf_token
         )
         print("Gemma 4 model loaded successfully!")
+        
+        try:
+            print("Committing HuggingFace cache volume...")
+            hf_cache_vol.commit()
+            print("Volume committed successfully.")
+        except Exception as e:
+            print(f"Failed to commit volume: {e}")
 
     @modal.method()
     def generate(self, prompt: str, temperature: float = 1.0, top_p: float = 0.95, top_k: int = 64, max_tokens: int = 1024) -> str:

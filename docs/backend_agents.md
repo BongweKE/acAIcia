@@ -12,7 +12,7 @@ The following diagram illustrates every API hop, asynchronous background task, a
 sequenceDiagram
     autonumber
     
-    participant UI as Streamlit UI
+    participant UI as Chainlit UI
     participant BP as Backend API
     participant GA as 🛡️ Guardian Agent (Gemini 2.5 Flash)
     participant AA as 🧠 Architect Agent (Gemini 2.5 Flash)
@@ -88,7 +88,7 @@ sequenceDiagram
 
 To measure API performance, track latency bottlenecks, and account for API token usage securely, the FastAPI backend passes a telemetry dictionary through every node step. 
 
-Crucially, rather than making the user wait for logging to finish, the Backend returns its payload to the Streamlit UI immediately, while utilizing FastAPI's `BackgroundTasks` to invisibly flush the telemetry array into Supabase's `query_interaction_logs` database table.
+Crucially, rather than making the user wait for logging to finish, the Backend returns its payload to the Chainlit UI immediately, while utilizing FastAPI's `BackgroundTasks` to invisibly flush the telemetry array into Supabase's `query_interaction_logs` database table.
 
 ---
 
@@ -106,9 +106,9 @@ When handling a query or settings request, the backend determines the active pro
 
 | Provider | Agent Type | Active Model | Notes / Key Configs |
 | :--- | :--- | :--- | :--- |
-| **Google Gemini API** *(Default)* | Guardian / Architect<br>Synthesis | `gemini-2.5-flash`<br>`gemini-2.5-pro` | Requires `GOOGLE_API_KEY` |
+| **Google Gemini API** | Guardian / Architect / Synthesis | `gemini-2.5-flash` | Requires `GOOGLE_API_KEY`<br>Used as a fallback to prevent quota limits |
 | **NVIDIA NIM API** | Guardian / Architect<br>Synthesis | `meta/llama-3.1-8b-instruct`<br>`meta/llama-3.3-70b-instruct` | Requires `NVIDIA_API_KEY`<br>Temperature: 0.20, Top-p: 0.70 |
-| **Modal Gemma 4** *(Self-Hosted)* | Guardian / Architect / Synthesis | `google/gemma-4-E2B-it` | Requires `HF_TOKEN` (for gated access)<br>Runs on L4 GPU serverless instance<br>Uses recommended sampling: Temp 1.0, Top-p 0.95, Top-k 64 |
+| **Modal Gemma 4** *(Default)* | Guardian / Architect / Synthesis | `google/gemma-4-E2B-it` | Default active provider<br>Requires `HF_TOKEN` (for gated access)<br>Runs on L4 GPU serverless instance<br>Uses recommended sampling: Temp 1.0, Top-p 0.95, Top-k 64 |
 
 ### C. Self-Hosted Gemma 4 Inference Service
 The self-hosted Gemma 4 service is defined in `backend/gemma_inference.py` as an independent Modal App (`acaicia-gemma-inference`).

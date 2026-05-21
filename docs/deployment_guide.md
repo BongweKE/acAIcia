@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md)
 
-acAIcia relies on external tools to orchestrate its serverless nature. This guide breaks down deploying the database, the GPU backend algorithms on Modal, and securing the Streamlit frontend.
+acAIcia relies on external tools to orchestrate its serverless nature. This guide breaks down deploying the database, the GPU backend algorithms on Modal, and securing the Chainlit frontend.
 
 ---
 
@@ -65,6 +65,8 @@ This tool offers an interactive menu:
 1. **Configure Local & Modal Cloud LLM Settings:** Prompts you to choose your LLM provider (`gemini`, `nvidia`, or `modal`), input API keys (`GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `HF_TOKEN`), writes them to a local `backend/.env` file, updates the `acaicia-llm-secrets` secret on Modal, and attempts to sync the active LLM provider choice directly with the persistent volume `/data/settings.json` on your deployed backend.
 2. **Deploy Gemma 4 Inference App to Modal:** Packages and deploys the independent model server `gemma_inference.py`.
 3. **Deploy Main FastAPI Backend App to Modal:** Packages and deploys the router API `app.py`.
+4. **Check Remote Backend & Credentials Status:** Contacts the backend API endpoints to confirm credential validity and view the active cloud LLM provider configuration.
+5. **Deploy Chainlit Frontend App to Modal:** Packages and deploys the modern frontend app (`frontend/modal_app.py`) to Modal serverless web hosts.
 
 ---
 
@@ -92,19 +94,29 @@ Push the main router API to a persistent HTTP endpoint on Modal's serverless net
 cd backend
 modal deploy app.py
 ```
-*Note this URL explicitly (e.g. `https://<username>--acaicia-backend-fastapi-app-entrypoint.modal.run`), as the Frontend Streamlit configuration will require it.*
+*Note this URL explicitly (e.g. `https://<username>--acaicia-backend-fastapi-app-entrypoint.modal.run`), as the Frontend Chainlit configuration will require it.*
 
 ---
 
-## 5. Frontend Launch (Streamlit)
+## 5. Frontend Launch (Chainlit)
 
-Before launching, navigate to `frontend/app.py` and modify `BACKEND_URL` to match the persistent endpoint assigned to your API in step 4C. 
+Before launching or deploying, verify that the `BACKEND_URL` constant in `frontend/app.py` correctly matches the persistent endpoint assigned to your FastAPI backend (from step 4C). The deployment scripts automatically extract this constant at build time to configure the container's runtime environment.
 
-To run it locally:
+### A. Run Locally
+To run the frontend locally in development mode:
 ```bash
-cd frontend
-pip install -r requirements.txt
-streamlit run app.py
+# From project root:
+.venv/bin/chainlit run frontend/app.py --port 8000
 ```
+Then navigate to `http://localhost:8000` in your web browser.
 
-For production rollout, standard deployment through **Streamlit Community Cloud** is highly recommended, as the app is natively stateless. Provide your repository URL to Streamlit Community Cloud and execute from the Root `frontend/app.py` path.
+### B. Deploy to Modal Cloud
+To deploy the frontend to a serverless container environment on Modal:
+```bash
+# Using CLI Admin tool: Choose Option 5
+python cli_admin.py
+
+# Or run manually:
+.venv/bin/modal deploy frontend/modal_app.py
+```
+Upon successful deployment, Modal will output the public URL (e.g. `https://<username>--acaicia-frontend-run.modal.run`). The app will scale dynamically from zero and support native WebSockets for responsive chat streaming.

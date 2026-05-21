@@ -164,6 +164,57 @@ def deploy_backend():
     except Exception as e:
         print(f"Error deploying backend app: {e}")
 
+def deploy_frontend():
+    print_header("Deploying Chainlit Frontend App to Modal")
+    try:
+        modal_bin = get_modal_cmd()
+        subprocess.run([modal_bin, "deploy", "frontend/modal_app.py"], check=True)
+        print("✓ Chainlit frontend app successfully deployed!")
+    except Exception as e:
+        print(f"Error deploying frontend app: {e}")
+
+def check_status(env_path):
+    print_header("Check Remote Backend & Credentials Status")
+    backend_url = None
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    frontend_app_path = os.path.join(base_dir, "frontend", "app.py")
+    if os.path.exists(frontend_app_path):
+        with open(frontend_app_path, "r") as f:
+            content = f.read()
+            m = re.search(r'BACKEND_URL\s*=\s*["\'](https://[^\'\"]+)["\']', content)
+            if m:
+                backend_url = m.group(1)
+                
+    if not backend_url:
+        print("⚠️ Could not locate BACKEND_URL in frontend/app.py.")
+        return
+        
+    settings_url = backend_url.replace("/query", "/settings")
+    print(f"Calling Settings API: {settings_url} ...")
+    try:
+        import requests
+        res = requests.get(settings_url, timeout=30)
+        if res.status_code == 200:
+            data = res.json()
+            provider = data.get("llm_provider", "unknown")
+            provider_display = {
+                "gemini": "Google Gemini API (gemini)",
+                "nvidia": "NVIDIA NIM API (nvidia)",
+                "modal": "Modal Gemma 4 Self-Hosted (modal)"
+            }.get(provider, provider)
+            
+            print(f"\nActive LLM Provider: {provider_display}")
+            print("-" * 40)
+            print(f"Google API Key:      {'✅ Configured' if data.get('google_api_key_configured') else '❌ Missing'}")
+            print(f"NVIDIA API Key:      {'✅ Configured' if data.get('nvidia_api_key_configured') else '❌ Missing'}")
+            print(f"Hugging Face Token:  {'✅ Configured' if data.get('hf_token_configured') else '⚠️ Missing (required for Gemma 4)'}")
+            print(f"Configuration Source: {data.get('active_source', 'unknown')}")
+            print("-" * 40)
+        else:
+            print(f"⚠️ Settings API returned error status {res.status_code}: {res.text}")
+    except Exception as e:
+        print(f"⚠️ Failed to connect to backend API: {e}")
+
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     env_path = os.path.join(base_dir, "backend", ".env")
@@ -173,9 +224,11 @@ def main():
         print("1) Configure Local & Modal Cloud LLM Settings")
         print("2) Deploy Gemma 4 Inference App to Modal")
         print("3) Deploy main FastAPI Backend App to Modal")
-        print("4) Exit")
+        print("4) Check Remote Backend & Credentials Status")
+        print("5) Deploy Chainlit Frontend App to Modal")
+        print("6) Exit")
         
-        choice = input("Enter option (1-4): ").strip()
+        choice = input("Enter option (1-6): ").strip()
         if choice == "1":
             configure_settings(env_path)
         elif choice == "2":
@@ -183,6 +236,10 @@ def main():
         elif choice == "3":
             deploy_backend()
         elif choice == "4":
+            check_status(env_path)
+        elif choice == "5":
+            deploy_frontend()
+        elif choice == "6":
             print("Exiting.")
             break
         else:

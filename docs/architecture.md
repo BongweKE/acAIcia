@@ -6,11 +6,11 @@ This dedicated document outlines the high-level infrastructure, multi-agent logi
 
 ## 1. High-Level Operations Overview
 
-acAIcia relies on a fully serverless, highly decoupled ecosystem split between Streamlit (Frontend), Modal Serverless Containers (FastAPI Backend, Persistent Settings Volume, and Self-Hosted Gemma 4 Inference Service), and Supabase (Postgres & Vector Store).
+acAIcia relies on a fully serverless, highly decoupled ecosystem split between Chainlit (Frontend), Modal Serverless Containers (FastAPI Backend, Persistent Settings Volume, and Self-Hosted Gemma 4 Inference Service), and Supabase (Postgres & Vector Store).
 
 ```mermaid
 flowchart TD
-    User([fa:fa-user User]) <-->|HTTPS / UI Interactivity| UI[Streamlit Frontend]
+    User([fa:fa-user User]) <-->|HTTPS / UI Interactivity| UI[Chainlit Frontend]
     UI <-->|REST API JSON /query & /settings| API[Modal FastAPI Backend]
     API <-->|SQL Client/RPC| DB[(Supabase Postgres DB)]
     

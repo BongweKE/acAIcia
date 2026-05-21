@@ -2,28 +2,29 @@
 
 [← Back to README](../README.md)
 
-acAIcia's frontend is a minimalist application built with **Streamlit** (`frontend/app.py`). It emphasizes an elegant layout while serving as the remote client for the complex logic executing asynchronously on the Modal backend.
+acAIcia's frontend is a polished, highly responsive application built with **Chainlit** (`frontend/app.py`). It utilizes WebSocket communication and a custom-styled modern UI to interact with the multi-agent backend running asynchronously on Modal.
 
 ## Key Features
 
-1. **Statefulness**
-   The application holds onto chat histories locally via `st.session_state`. This ensures an unbroken back-and-forth flow visually without needing to maintain persistent WebSockets or polling hooks.
+1. **Forestry & Agroforestry Aesthetic**
+   The interface is customized via a custom CSS file (`frontend/public/style.css`) and config (`frontend/.chainlit/config.toml`). It features Outfit typography, smooth animations, and a rich dark/light forestry theme with custom cards for bibliographies and citations.
 
-2. **Dynamic UI/Citations**
-   A standout feature is the structured mapping of citations. When the Python backend returns the `sources` metadata in combination with the Generative AI `answer`, the UI parses the array, instantiating `st.expander` modules below the assistant's answer. This securely binds the LLM's response to the actual literature, highlighting DOI and URL links when available.
+2. **Visual Step Execution (Asynchronous Polling)**
+   Chainlit's native `cl.Step` UI element is used to provide real-time visual progress of the backend pipeline. When a user submits a query, the frontend initiates an asynchronous job on the backend and polls the status endpoint, updating the step spinner in real-time with elapsed execution time.
 
-3. **Admin Control Console Sidebar**
-   The Streamlit app features a sidebar console (`st.sidebar`) that interfaces with the backend `/settings` API:
-   - **Provider Switching:** Allows administrators to select the active model provider (`gemini`, `nvidia`, or `modal`) and save it.
-   - **Credential Status Monitoring:** Evaluates and displays configuration health (e.g., whether Google, NVIDIA, or Hugging Face tokens are active) and lists the source of the settings (`volume`, `env`, or `default`).
-   - **Settings Caching:** Fetches backend configuration and caches the values for 10 seconds (`@st.cache_data(ttl=10)`) to maintain high performance and prevent database/volume overloading. Selecting "Apply & Save Settings" explicitly clears the cache and reruns the session.
+3. **Rich HTML Citation Blocks**
+   When the backend returns the synthesis response and literature sources, the frontend dynamically compiles and formats a curated bibliography card using structured HTML under the response content, highlighting clickable DOI links and reference URLs.
 
-4. **Zero Business Logic**
-   The Streamlit app acts exclusively as a dumb client. All reasoning, token tracking, embedding models, query rejection, and database connections happen purely inside the Backend FastAPI endpoint (pointed to by the `BACKEND_URL` constant in `frontend/app.py`).
+4. **Zero Administrative Footprint in UI (Security-First)**
+   The administrative settings panel has been removed from the frontend UI. This prevents unauthorized users from altering LLM providers or viewing credential states. Configuration management is strictly offloaded to the local command-line administration tool (`cli_admin.py`).
+
+5. **Zero Business Logic**
+   The frontend operates exclusively as a presentation client. All semantic embeddings, vector database searches, LLM routing (Gemini, NVIDIA, or self-hosted Gemma 4), query safety guards, and synthesis reasoning are offloaded to the Modal FastAPI backend.
 
 ## Flow
-- Upon load, the frontend hits the settings endpoint `GET /settings` (derived by rewriting the `BACKEND_URL` suffix to `/settings`).
-- The user provides an input prompt via `st.chat_input`.
-- The frontend shoots off a blocking REST `POST` request to `BACKEND_URL` with a 60-second timeout to accommodate Generative AI latency.
-- Upon receiving a JSON containing `"response"` and `"sources"`, the app writes them dynamically into markdown slots.
+- **Startup:** The frontend calls the backend `GET /settings` API (derived from `BACKEND_URL`) to fetch and display the active model provider in the chatbot welcome message.
+- **Message Submission:** The user submits a prompt, which triggers `POST /query` on the backend. The backend starts the task asynchronously and returns a `query_id`.
+- **Pipeline Progress:** The frontend starts a Chainlit execution step and polls the backend status endpoint `GET /query/status/{query_id}` every 2 seconds.
+- **Completion:** Once completed, the frontend retrieves the response text and sources, constructs the citation cards, and sends the compiled message back to the chat room.
+
 

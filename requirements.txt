@@ -15,5 +15,5 @@ python-docx
 python-pptx
 
 # Frontend UI
-streamlit
+chainlit
 requests

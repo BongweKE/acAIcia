@@ -4,7 +4,7 @@
 
 acAIcia is a robust, highly modular AI application designed to securely aggregate, chunk, encode, and intelligently query vast internal research documents natively focusing on agricultural, forestry, and climate-change contexts. 
 
-Built using a highly decoupled architecture spanning Supabase, Modal serverless GPU containers, and Streamlit, it is capable of zero-overhead querying, native semantic embeddings securely calculated locally in VRAM, and dynamic citation generation via chaining heavily curated LLM API endpoints.
+Built using a highly decoupled architecture spanning Supabase, Modal serverless GPU containers, and Chainlit, it is capable of zero-overhead querying, native semantic embeddings securely calculated locally in VRAM, and dynamic citation generation via chaining heavily curated LLM API endpoints.
 
 ---
 
@@ -12,7 +12,7 @@ Built using a highly decoupled architecture spanning Supabase, Modal serverless 
 
 We maintain comprehensive documentation for all major components and logic chains in the `docs/` directory:
 
-1. **[System Architecture](docs/architecture.md)** — Learn how the Streamlit, Modal, and Supabase components interact.
+1. **[System Architecture](docs/architecture.md)** — Learn how the Chainlit, Modal, and Supabase components interact.
 2. **[Multi-Agent Backend Engine](docs/backend_agents.md)** — Understand the 4-stage pipeline (Guardian, Architect, Retrieval, and Synthesis).
 3. **[GPU Data Ingestion Pipeline](docs/data_ingestion.md)** — Details on parsing PDFs/DOCXs natively via cloud T4 GPUs into `pgvector` tensors.
 4. **[Database Schema (Supabase)](docs/database_schema.md)** — The Postgres definitions mapping relational document catalogs to math vectors cleanly alongside Telemetry logging.
@@ -49,10 +49,9 @@ For the easiest setup, we provide an interactive command-line administration too
    ```
 
 4. **Launch Application**:
-   Boot up the Streamlit interface (Remember to update the `BACKEND_URL` inside [frontend/app.py](frontend/app.py) to point to your deployed Modal FastAPI backend first):
+   Boot up the Chainlit interface (Remember to verify that the `BACKEND_URL` inside [frontend/app.py](frontend/app.py) points to your deployed Modal FastAPI backend first):
    ```bash
-   cd frontend
-   streamlit run app.py
+   .venv/bin/chainlit run frontend/app.py --port 8000
    ```
 
 For manual deployment workflows, container secrets caching warnings, and structural deep dives, refer to the [Documentation Index](#documentation-index).

@@ -16,6 +16,7 @@ erDiagram
         string title
         string[] authors
         integer publication_year
+        string[] topic_keywords
         string url_link
         string doi
     }
@@ -29,15 +30,19 @@ erDiagram
     query_interaction_logs {
         uuid log_id PK
         timestamp timestamp
+        string session_id
         text original_query
         boolean guardian_passed
         text architect_query
+        uuid[] retrieved_doc_ids
+        string synthesis_source
         integer total_tokens_used
         integer latency_ms
     }
 
     ingestion_logs {
         uuid log_id PK
+        timestamp timestamp
         string filename
         integer chunks_created
         string status "Success / Failed"
