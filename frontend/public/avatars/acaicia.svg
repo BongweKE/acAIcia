@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2b5d34" />
+      <stop offset="100%" stop-color="#15aa5b" />
+    </linearGradient>
+    
+    <!-- Leaf Gradient -->
+    <linearGradient id="leaf-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#e2f0e5" />
+    </linearGradient>
+    
+    <!-- Shadow Filter -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.15" />
+    </filter>
+  </defs>
+
+  <!-- Base Circle -->
+  <circle cx="50" cy="50" r="48" fill="url(#bg-grad)" filter="url(#shadow)" />
+  
+  <!-- Subtle Inner Border -->
+  <circle cx="50" cy="50" r="44" fill="none" stroke="#ffffff" stroke-opacity="0.15" stroke-width="2" />
+
+  <!-- Organic Leaf Path -->
+  <path d="M 50 25 
+           C 65 35, 75 55, 70 70 
+           C 55 75, 35 65, 30 50 
+           C 25 35, 45 28, 50 25 Z" 
+        fill="url(#leaf-grad)" />
+        
+  <!-- Leaf Center Vein -->
+  <path d="M 50 25 
+           C 48 40, 48 55, 40 68" 
+        fill="none" stroke="#2b5d34" stroke-width="2" stroke-linecap="round" stroke-opacity="0.7" />
+
+  <!-- Leaf Side Veins -->
+  <path d="M 47 42 C 40 40, 36 42, 36 42" fill="none" stroke="#2b5d34" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.6" />
+  <path d="M 48 52 C 41 53, 35 58, 35 58" fill="none" stroke="#2b5d34" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.6" />
+  <path d="M 49 47 C 55 45, 60 48, 60 48" fill="none" stroke="#2b5d34" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.6" />
+  <path d="M 48 57 C 56 58, 62 64, 62 64" fill="none" stroke="#2b5d34" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.6" />
+</svg>

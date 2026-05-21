@@ -1,0 +1,8 @@
+# Welcome to acAIcia 🌿
+
+**acAIcia** is the CIFOR-ICRAF Expert Research Assistant. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.
+
+### How to use:
+1. **Ask a question:** Type your query related to forestry, agroforestry, climate change, or biodiversity in the input box below.
+2. **View citations:** Expand the citation blocks at the bottom of the response to see original publications and their DOIs.
+3. **Change LLM Provider:** Click the **Chat Settings** icon in the message composer to dynamically switch between Google Gemini, NVIDIA NIM, or self-hosted Modal Gemma 4.

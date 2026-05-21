@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="user-bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#eaedea" />
+      <stop offset="100%" stop-color="#d2dcd4" />
+    </linearGradient>
+    
+    <!-- Silhouette Gradient -->
+    <linearGradient id="sil-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4a5d4e" />
+      <stop offset="100%" stop-color="#2b5d34" />
+    </linearGradient>
+    
+    <!-- Shadow Filter -->
+    <filter id="user-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.08" />
+    </filter>
+  </defs>
+
+  <!-- Base Circle -->
+  <circle cx="50" cy="50" r="48" fill="url(#user-bg-grad)" filter="url(#user-shadow)" />
+  
+  <!-- Subtle Inner Border -->
+  <circle cx="50" cy="50" r="44" fill="none" stroke="#2b5d34" stroke-opacity="0.1" stroke-width="2" />
+
+  <!-- User Head -->
+  <circle cx="50" cy="40" r="16" fill="url(#sil-grad)" />
+
+  <!-- User Shoulders -->
+  <path d="M 18 80 
+           C 18 64, 30 58, 50 58 
+           C 70 58, 82 64, 82 80 
+           Z" 
+        fill="url(#sil-grad)" />
+</svg>

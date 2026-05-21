@@ -1,0 +1,380 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+/* Apply primary Outfit font universally */
+body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+}
+
+/* Custom CSS variables */
+:root {
+    --primary-color: #2b5d34;
+    --primary-light: #e2f0e5;
+    --accent-color: #15aa5b;
+}
+
+/* Custom styling for acAIcia Welcome Card */
+.acaicia-welcome-card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(245, 247, 245, 0.95) 100%);
+    border: 1px solid rgba(43, 93, 52, 0.15);
+    border-radius: 20px;
+    padding: 2rem;
+    max-width: 650px;
+    margin: 1.5rem auto;
+    box-shadow: 0 10px 40px rgba(43, 93, 52, 0.06);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: slide-in 0.5s ease-out;
+}
+
+/* Dark mode overrides for card */
+.dark .acaicia-welcome-card {
+    background: linear-gradient(135deg, rgba(23, 35, 26, 0.95) 0%, rgba(15, 24, 17, 0.95) 100%);
+    border: 1px solid rgba(63, 169, 97, 0.2);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.acaicia-welcome-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 48px rgba(43, 93, 52, 0.1);
+}
+
+.dark .acaicia-welcome-card:hover {
+    box-shadow: 0 14px 48px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes slide-in {
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.acaicia-welcome-header {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.acaicia-logo-emoji {
+    font-size: 3rem;
+    filter: drop-shadow(0 2px 10px rgba(43, 93, 52, 0.25));
+    animation: float 4s ease-in-out infinite;
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+}
+
+.acaicia-title-container {
+    display: flex;
+    flex-direction: column;
+}
+
+.acaicia-title {
+    font-size: 2.25rem;
+    font-weight: 800;
+    color: var(--primary-color) !important;
+    margin: 0;
+    line-height: 1;
+    letter-spacing: -0.02em;
+}
+
+.dark .acaicia-title {
+    color: #3fa961 !important;
+}
+
+.acaicia-subtitle {
+    font-size: 1rem;
+    color: #4a5d4e;
+    margin: 6px 0 0 0;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.dark .acaicia-subtitle {
+    color: #a3bca7;
+}
+
+.acaicia-description {
+    font-size: 0.98rem;
+    color: #3f4e42;
+    line-height: 1.6;
+    margin-bottom: 1.75rem;
+}
+
+.dark .acaicia-description {
+    color: #cddbcf;
+}
+
+/* Credentials dashboard section */
+.credentials-dashboard {
+    background: rgba(43, 93, 52, 0.03);
+    border: 1px solid rgba(43, 93, 52, 0.08);
+    border-radius: 14px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.dark .credentials-dashboard {
+    background: rgba(63, 169, 97, 0.04);
+    border: 1px solid rgba(63, 169, 97, 0.1);
+}
+
+.credentials-header {
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: var(--primary-color);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.85rem;
+    border-bottom: 1px solid rgba(43, 93, 52, 0.08);
+    padding-bottom: 0.5rem;
+}
+
+.dark .credentials-header {
+    color: #3fa961;
+    border-bottom-color: rgba(63, 169, 97, 0.1);
+}
+
+.credential-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0;
+    font-size: 0.9rem;
+}
+
+.credential-item.border-top-divider {
+    border-top: 1px dashed rgba(43, 93, 52, 0.12);
+    margin-top: 0.5rem;
+    padding-top: 0.75rem;
+}
+
+.dark .credential-item.border-top-divider {
+    border-top-color: rgba(63, 169, 97, 0.15);
+}
+
+.credential-label {
+    font-weight: 500;
+    color: #4a5d4e;
+}
+
+.dark .credential-label {
+    color: #a3bca7;
+}
+
+.credential-value {
+    font-weight: 600;
+}
+
+.credential-value.status-configured {
+    color: #16a34a;
+}
+
+.dark .credential-value.status-configured {
+    color: #4ade80;
+}
+
+.credential-value.status-missing {
+    color: #dc2626;
+}
+
+.dark .credential-value.status-missing {
+    color: #f87171;
+}
+
+.source-badge {
+    background: #e2f0e5;
+    color: var(--primary-color);
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: 700;
+    border: 1px solid rgba(43, 93, 52, 0.1);
+}
+
+.dark .source-badge {
+    background: #172d1f;
+    color: #3fa961;
+    border-color: rgba(63, 169, 97, 0.15);
+}
+
+.settings-helper-tip {
+    font-size: 0.85rem;
+    color: #627c67;
+    text-align: center;
+    line-height: 1.4;
+}
+
+.dark .settings-helper-tip {
+    color: #8fa794;
+}
+
+/* Customize citation cards for references */
+.source-container {
+    margin-top: 1.5rem;
+    border-top: 1px solid rgba(43, 93, 52, 0.15);
+    padding-top: 1.25rem;
+}
+
+.source-header-title {
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: var(--primary-color);
+    margin-bottom: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dark .source-header-title {
+    color: #3fa961;
+}
+
+.source-item {
+    background: rgba(251, 251, 250, 0.7);
+    border: 1px solid #eae7e0;
+    border-left: 4px solid var(--primary-color);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 0.85rem;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dark .source-item {
+    background: rgba(23, 35, 26, 0.4);
+    border-color: rgba(63, 169, 97, 0.15);
+    border-left-color: #3fa961;
+}
+
+.source-item:hover {
+    transform: translateX(4px);
+    box-shadow: 0 4px 15px rgba(43, 93, 52, 0.05);
+    background-color: #fbfbfa;
+}
+
+.dark .source-item:hover {
+    background-color: rgba(23, 35, 26, 0.7);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.source-title {
+    font-weight: 650;
+    color: var(--primary-color);
+    font-size: 1.05rem;
+    margin-bottom: 6px;
+}
+
+.dark .source-title {
+    color: #4ade80;
+}
+
+.source-authors {
+    color: #4a5568;
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+}
+
+.dark .source-authors {
+    color: #a3bca7;
+}
+
+.source-links {
+    font-size: 0.85rem;
+    color: #718096;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+}
+
+.source-links a {
+    color: #15aa5b;
+    text-decoration: none;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.source-links a:hover {
+    text-decoration: underline;
+    color: #108547;
+}
+
+.dark .source-links a {
+    color: #4ade80;
+}
+
+.dark .source-links a:hover {
+    color: #6cf0a1;
+}
+
+/* Custom styled thinking state step */
+.thinking-card {
+    background: rgba(43, 93, 52, 0.04);
+    border: 1px solid rgba(43, 93, 52, 0.15);
+    border-left: 5px solid var(--primary-color);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin: 0.75rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    animation: pulse-border 2s infinite ease-in-out;
+}
+
+@keyframes pulse-border {
+    0%, 100% { border-left-color: var(--primary-color); background: rgba(43, 93, 52, 0.04); }
+    50% { border-left-color: var(--accent-color); background: rgba(43, 93, 52, 0.08); }
+}
+
+/* Custom scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(43, 93, 52, 0.25);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(43, 93, 52, 0.45);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background: rgba(63, 169, 97, 0.25);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: rgba(63, 169, 97, 0.45);
+}
+
+/* Smooth borders and shadows for inputs and interactive elements */
+input, textarea {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+input:focus, textarea:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 2px rgba(43, 93, 52, 0.15) !important;
+}
+
+.dark input:focus, .dark textarea:focus {
+    border-color: #3fa961 !important;
+    box-shadow: 0 0 0 2px rgba(63, 169, 97, 0.2) !important;
+}
+
