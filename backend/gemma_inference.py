@@ -13,7 +13,7 @@ which provides:
 Performance Notes:
   - Expected 5-15x speedup over HuggingFace pipeline for text generation
   - L4 GPU (Ada Lovelace) is the sweet spot for cost vs performance on 2B models
-  - container_idle_timeout=300 keeps GPU warm for 5 minutes between requests
+  - scaledown_window=300 keeps GPU warm for 5 minutes between requests
 
 Model Configuration:
   - Primary model: google/gemma-4-E2B-it (Effective 2B params, multimodal)
@@ -43,10 +43,13 @@ image = (
         "vllm",
         "huggingface_hub",
         "hf_transfer",
+        "transformers",
     )
     .env({
         "HF_HUB_ENABLE_HF_TRANSFER": "1",
-        "VLLM_ATTENTION_BACKEND": "FLASHINFER",
+        "VLLM_USE_FLASHINFER_SAMPLER": "0",
+        "VLLM_DISABLE_FLASHINFER": "1",
+        "VLLM_USE_V1": "0",
     })
 )
 
@@ -65,9 +68,9 @@ FALLBACK_MODEL = "google/gemma-3-4b-it"
     secrets=secrets,
     volumes={"/root/.cache/huggingface": hf_cache_vol},
     timeout=900,
-    container_idle_timeout=300,     # Keep GPU warm for 5 minutes
-    allow_concurrent_inputs=50,     # Enable vLLM continuous batching
+    scaledown_window=300,           # Keep GPU warm for 5 minutes
 )
+@modal.concurrent(max_inputs=50)    # Enable vLLM continuous batching
 class GemmaModel:
     """High-performance Gemma inference using vLLM on Modal.
 
@@ -112,7 +115,9 @@ class GemmaModel:
                 )
                 self._engine = AsyncLLMEngine.from_engine_args(engine_args)
                 self.model_id = attempt_model
-                print(f"vLLM engine loaded successfully with '{attempt_model}'!")
+                from transformers import AutoTokenizer
+                self._tokenizer = AutoTokenizer.from_pretrained(attempt_model, token=hf_token)
+                print(f"vLLM engine and tokenizer loaded successfully with '{attempt_model}'!")
                 break
             except Exception as e:
                 print(f"Failed to load '{attempt_model}': {e}")
@@ -180,9 +185,8 @@ class GemmaModel:
         # Add the current user message
         messages.append({"role": "user", "content": prompt})
 
-        # Apply the model's chat template via the tokenizer
-        tokenizer = self._engine.engine.tokenizer.tokenizer
-        formatted_prompt = tokenizer.apply_chat_template(
+        # Apply the model's chat template via the tokenizer loaded at startup
+        formatted_prompt = self._tokenizer.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True,
