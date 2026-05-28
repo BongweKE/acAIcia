@@ -178,9 +178,14 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                 "Authorization": f"Bearer {NVIDIA_API_KEY}",
                 "Accept": "application/json"
             }
+            messages = []
+            if conversation_history and agent_type == "synthesis":
+                messages.extend(conversation_history)
+            messages.append({"role": "user", "content": prompt})
+            
             payload = {
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
                 "max_tokens": 1024 if agent_type != "synthesis" else 2048,
                 "temperature": 0.20,
                 "top_p": 0.70
@@ -212,9 +217,14 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                 "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
                 "Content-Type": "application/json"
             }
+            messages = []
+            if conversation_history and agent_type == "synthesis":
+                messages.extend(conversation_history)
+            messages.append({"role": "user", "content": prompt})
+            
             payload = {
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
                 "max_tokens": 1024 if agent_type != "synthesis" else 2048,
                 "temperature": 0.20,
                 "top_p": 0.70
@@ -240,10 +250,16 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                 "synthesis": "gemini-2.5-flash"
             }
             model = model_map.get(agent_type, "gemini-2.5-flash")
+            contents = []
+            if conversation_history and agent_type == "synthesis":
+                for msg in conversation_history:
+                    gemini_role = "model" if msg["role"] == "assistant" else "user"
+                    contents.append({"role": gemini_role, "parts": [{"text": msg["content"]}]})
+            contents.append({"role": "user", "parts": [{"text": prompt}]})
             try:
                 res = ai_client.models.generate_content(
                     model=model,
-                    contents=prompt
+                    contents=contents
                 )
                 tokens = res.usage_metadata.total_token_count if hasattr(res, 'usage_metadata') and res.usage_metadata else 0
                 return {"text": res.text.strip(), "tokens": tokens}
@@ -730,7 +746,7 @@ def fastapi_app_entrypoint():
             conversation_history = request.conversation_history
             session_id = request.session_id
             
-            if not conversation_history and session_id:
+            if conversation_history is None and session_id:
                 try:
                     history_path = f"/data/sessions/{session_id}.json"
                     if os.path.exists(history_path):

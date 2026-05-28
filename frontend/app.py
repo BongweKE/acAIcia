@@ -35,6 +35,11 @@ THINKING_PHRASES = [
 
 @cl.on_chat_start
 async def start():
+    # Initialize conversation tracking for multi-turn context immediately.
+    # This prevents sending a None session_id if the user submits a prompt
+    # before the backend settings fetch completes.
+    cl.user_session.set("session_id", str(uuid.uuid4()))
+    cl.user_session.set("conversation_history", [])
 
     # Fetch backend settings on startup (with retries for backend cold start)
     provider_name = "gemini"
@@ -78,12 +83,6 @@ async def start():
     await temp_msg.send()
     # Store the message ID so we can remove it on first user message
     cl.user_session.set("temp_info_msg_id", temp_msg.id)
-    
-    # Initialize conversation tracking for multi-turn context.
-    # The session_id is sent to the backend so follow-up questions can
-    # reference prior answers within the same chat session.
-    cl.user_session.set("session_id", str(uuid.uuid4()))
-    cl.user_session.set("conversation_history", [])
 
     # Setup ChatSettings for LLM Provider
     settings = cl.ChatSettings([
@@ -154,6 +153,7 @@ async def main(message: cl.Message):
 
     # 1. Post query to backend to initiate async task
     session_id = cl.user_session.get("session_id")
+    history = cl.user_session.get("conversation_history", [])
     try:
         init_response = await asyncio.to_thread(
             requests.post,
@@ -161,6 +161,7 @@ async def main(message: cl.Message):
             json={
                 "query": user_query,
                 "session_id": session_id,
+                "conversation_history": history,
             },
             timeout=15
         )
@@ -171,7 +172,14 @@ async def main(message: cl.Message):
         if not query_id:
             raise Exception("Backend did not return a query ID.")
     except Exception as e:
-        await cl.Message(content=f"⚠️ An error occurred while connecting to the backend: {e}", author="acAIcia").send()
+        err_html = f"""<div class="acaicia-error-card">
+<div class="acaicia-error-header">⚠️ Connection Error</div>
+<div class="acaicia-error-body">
+Failed to connect to the backend server:
+<pre style="margin-top: 8px; font-family: monospace; white-space: pre-wrap;">{e}</pre>
+</div>
+</div>"""
+        await cl.Message(content=err_html, author="acAIcia").send()
         return
 
     # 2. Poll status API with a visual step and randomized thinking phrases
@@ -181,37 +189,61 @@ async def main(message: cl.Message):
     
     answer = None
     sources = []
+    error_message = None
     
-    async with cl.Step(name="acAIcia Multi-Agent Pipeline", type="run") as step:
-        phrase = random.choice(THINKING_PHRASES)
-        for poll_idx in range(max_polls):
-            # Refresh the thinking phrase every ~8 seconds (4 polls)
-            if poll_idx % 4 == 0 and poll_idx > 0:
-                phrase = random.choice(THINKING_PHRASES)
-            
-            step.output = f"🌿 {phrase}"
-            await step.update()
-            
-            try:
-                status_res = await asyncio.to_thread(requests.get, status_url, timeout=10)
-                if status_res.status_code == 200:
-                    status_data = status_res.json()
-                    current_status = status_data.get("status")
-                    
-                    if current_status == "completed":
-                        answer = status_data.get("response", "No response generated.")
-                        sources = status_data.get("sources", [])
-                        step.output = "Pipeline execution complete."
-                        break
-                    elif current_status == "failed":
-                        raise Exception(status_data.get("error", "Unknown error during processing."))
-            except Exception as poll_err:
-                # If connection error during poll, retry unless it is a failure state
-                if "failed" in str(poll_err).lower():
-                    step.output = f"Pipeline execution failed: {poll_err}"
-                    raise poll_err
-            
-            await asyncio.sleep(poll_interval)
+    try:
+        async with cl.Step(name="acAIcia Multi-Agent Pipeline", type="run") as step:
+            phrase = random.choice(THINKING_PHRASES)
+            for poll_idx in range(max_polls):
+                # Refresh the thinking phrase every ~8 seconds (4 polls)
+                if poll_idx % 4 == 0 and poll_idx > 0:
+                    phrase = random.choice(THINKING_PHRASES)
+                
+                step.output = f"🌿 {phrase}"
+                await step.update()
+                
+                try:
+                    status_res = await asyncio.to_thread(requests.get, status_url, timeout=10)
+                    if status_res.status_code == 200:
+                        status_data = status_res.json()
+                        current_status = status_data.get("status")
+                        
+                        if current_status == "completed":
+                            answer = status_data.get("response", "No response generated.")
+                            sources = status_data.get("sources", [])
+                            step.output = "Pipeline execution complete."
+                            break
+                        elif current_status == "failed":
+                            raise Exception(status_data.get("error", "Unknown error during processing."))
+                except Exception as poll_err:
+                    # If connection error during poll, retry unless it is a failure state
+                    if "failed" in str(poll_err).lower():
+                        step.output = f"Pipeline execution failed: {poll_err}"
+                        raise poll_err
+                
+                await asyncio.sleep(poll_interval)
+    except Exception as e:
+        error_message = str(e)
+
+    if error_message:
+        if any(w in error_message.lower() for w in ["context length", "token size", "maximum context", "too many tokens"]):
+            err_html = """<div class="acaicia-error-card">
+<div class="acaicia-error-header">⚠️ Context Length Exceeded</div>
+<div class="acaicia-error-body">
+This conversation has become too long and has exceeded the model's memory limit. 
+Please click the <b>New Chat</b> button in the sidebar to reset history and start a fresh session.
+</div>
+</div>"""
+        else:
+            err_html = f"""<div class="acaicia-error-card">
+<div class="acaicia-error-header">⚠️ Error Processing Query</div>
+<div class="acaicia-error-body">
+An error occurred during pipeline execution:
+<pre style="margin-top: 8px; font-family: monospace; white-space: pre-wrap;">{error_message}</pre>
+</div>
+</div>"""
+        await cl.Message(content=err_html, author="acAIcia").send()
+        return
 
     if answer is None:
         await cl.Message(content="⚠️ Request timed out or failed on the backend.", author="acAIcia").send()

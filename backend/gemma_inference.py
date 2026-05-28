@@ -39,6 +39,7 @@ app = modal.App("acaicia-gemma-inference")
 # automatically. We add hf_transfer for fast weight downloads.
 image = (
     modal.Image.debian_slim(python_version="3.12")
+    .apt_install("gcc", "g++")
     .pip_install(
         "vllm",
         "huggingface_hub",
@@ -50,6 +51,7 @@ image = (
         "VLLM_USE_FLASHINFER_SAMPLER": "0",
         "VLLM_DISABLE_FLASHINFER": "1",
         "VLLM_USE_V1": "0",
+        "TRITON_CACHE_DIR": "/root/.cache/huggingface/triton",
     })
 )
 
@@ -107,7 +109,7 @@ class GemmaModel:
                 engine_args = AsyncEngineArgs(
                     model=attempt_model,
                     dtype="bfloat16",
-                    max_model_len=4096,             # Reasonable context for RAG
+                    max_model_len=8192,             # Reasonable context for RAG + multi-turn history
                     gpu_memory_utilization=0.90,     # Use 90% of L4's 24GB VRAM
                     enable_prefix_caching=True,      # Cache system prompt prefixes
                     enforce_eager=False,             # Allow CUDA graph optimization
@@ -173,24 +175,38 @@ class GemmaModel:
             max_tokens=max_tokens,
         )
 
-        # Build the message list for chat template
-        messages = []
+        # Include conversation history for multi-turn context and handle context limits dynamically
+        recent_history = conversation_history[-10:] if conversation_history else []
+        max_context = 8192
 
-        # Include conversation history for multi-turn context
-        if conversation_history:
-            # Limit to last 5 exchanges (10 messages) to stay within context
-            recent_history = conversation_history[-10:]
-            messages.extend(recent_history)
+        while True:
+            messages = []
+            if recent_history:
+                messages.extend(recent_history)
+            messages.append({"role": "user", "content": prompt})
 
-        # Add the current user message
-        messages.append({"role": "user", "content": prompt})
+            # Apply the model's chat template via the tokenizer loaded at startup
+            formatted_prompt = self._tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
 
-        # Apply the model's chat template via the tokenizer loaded at startup
-        formatted_prompt = self._tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+            # Tokenize and check length using the loaded tokenizer
+            try:
+                encoded = self._tokenizer.encode(formatted_prompt)
+                num_tokens = len(encoded)
+            except Exception as tok_err:
+                print(f"Error encoding prompt (non-fatal): {tok_err}")
+                num_tokens = len(formatted_prompt) // 4  # Fallback estimate
+
+            # If the prompt + maximum generation tokens exceeds context limit and we have history to drop
+            if num_tokens + max_tokens > max_context and len(recent_history) >= 2:
+                # Drop oldest exchange (user query + assistant answer) and try again
+                recent_history = recent_history[2:]
+                print(f"Truncated oldest conversation turn to fit context window. Current history length: {len(recent_history)} messages.")
+            else:
+                break
 
         # Generate with vLLM's async engine
         request_id = str(uuid.uuid4())
@@ -215,3 +231,27 @@ class GemmaModel:
             "primary_model": PRIMARY_MODEL,
             "fallback_model": FALLBACK_MODEL,
         }
+
+    @modal.exit()
+    def cleanup(self):
+        """Clean up resources on container shutdown.
+
+        Shuts down the vLLM engine background loop and commits the
+        cache volume to persist weights and Triton JIT compilation artifacts.
+        """
+        # 1. Gracefully shut down the vLLM engine background loop
+        if hasattr(self, "_engine") and self._engine is not None:
+            try:
+                print("Shutting down vLLM engine background loop...")
+                self._engine.shutdown_background_loop()
+                print("vLLM engine shut down successfully.")
+            except Exception as e:
+                print(f"Failed to shut down vLLM background loop (non-fatal): {e}")
+
+        # 2. Commit the cache volume to persist weights and Triton cache
+        try:
+            print("Committing HuggingFace cache volume on exit...")
+            hf_cache_vol.commit()
+            print("Volume committed successfully.")
+        except Exception as e:
+            print(f"Failed to commit volume (non-fatal): {e}")

@@ -55,3 +55,13 @@ For the easiest setup, we provide an interactive command-line administration too
    ```
 
 For manual deployment workflows, container secrets caching warnings, and structural deep dives, refer to the [Documentation Index](#documentation-index).
+
+---
+
+## Best Practices for Chat & Prompting
+
+To ensure the highest accuracy, response speed, and prevent context-limit errors:
+- **Well-Formulated First Prompt:** Write a specific and descriptive initial query. Incorporating geographic regions, target species, or research contexts allows the vector database retrieval pipeline to select the most relevant publication chunks.
+- **One Topic Per Chat:** Keep chat sessions focused on a single research query or topic.
+- **Limit Follow-ups:** Limit conversations to **2-3 follow-up questions** max.
+- **Use "New Chat" for New Inquiry:** Click the **New Chat** button in the sidebar to reset the session. This clears the memory context on both the frontend and backend, avoiding long latencies or context size limit issues.
