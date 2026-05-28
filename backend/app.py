@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Optional
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
 import modal
@@ -26,6 +27,8 @@ hf_cache_vol = modal.Volume.from_name("acaicia-hf-cache", create_if_missing=True
 # Request & Response Models for FastAPI
 class QueryRequest(BaseModel):
     query: str
+    session_id: Optional[str] = None
+    conversation_history: Optional[list[dict]] = None
 
 class QueryResponse(BaseModel):
     response: str
@@ -48,6 +51,20 @@ secrets = [
     modal.Secret.from_name("acaicia-llm-secrets")
 ]
 
+# ---- Cached Gemma class reference (avoids per-request RPC discovery) ----
+# This is resolved once at module load time rather than on every call_llm().
+try:
+    GEMMA_CLS = modal.Cls.from_name("acaicia-gemma-inference", "GemmaModel")
+except Exception:
+    GEMMA_CLS = None  # Will fail gracefully at call time if Modal provider used
+
+# Agent-specific generation parameters.
+# Guardian only needs to say PASS/FAIL (16 tokens max).
+# Architect rewrites the query (~256 tokens).
+# Synthesis generates the full answer (up to 2048 tokens).
+AGENT_MAX_TOKENS = {"guardian": 16, "architect": 256, "synthesis": 2048}
+AGENT_TEMPERATURE = {"guardian": 0.0, "architect": 0.3, "synthesis": 0.7}
+
 @app.function(
     image=image,
     secrets=secrets,
@@ -57,7 +74,7 @@ secrets = [
     },
     timeout=600
 )
-def process_query_async(query_id: str, user_query: str):
+def process_query_async(query_id: str, user_query: str, session_id: str = None, conversation_history: list = None):
     import os
     import time
     import json
@@ -126,21 +143,26 @@ def process_query_async(query_id: str, user_query: str):
         
         if provider == "modal":
             try:
-                gemma_cls = modal.Cls.from_name("acaicia-gemma-inference", "GemmaModel")
-                gemma_instance = gemma_cls()
-                max_tokens = 1024 if agent_type != "synthesis" else 2048
-                logger.info(f"Calling Modal Gemma 4 model for agent {agent_type}...")
+                if GEMMA_CLS is None:
+                    raise RuntimeError("Gemma inference class not available. Deploy acaicia-gemma-inference first.")
+                gemma_instance = GEMMA_CLS()
+                max_tokens = AGENT_MAX_TOKENS.get(agent_type, 1024)
+                temperature = AGENT_TEMPERATURE.get(agent_type, 0.7)
+                logger.info(f"Calling Modal Gemma (vLLM) for agent {agent_type} (max_tokens={max_tokens}, temp={temperature})...")
+                # Pass conversation history only for synthesis agent
+                history = conversation_history if agent_type == "synthesis" else None
                 text = gemma_instance.generate.remote(
                     prompt=prompt,
-                    temperature=1.0,
+                    temperature=temperature,
                     top_p=0.95,
                     top_k=64,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
+                    conversation_history=history,
                 )
                 estimated_tokens = len(prompt) // 4 + len(text) // 4
                 return {"text": text.strip(), "tokens": estimated_tokens}
             except Exception as e:
-                logger.error(f"Failed to generate content with Modal Gemma 4 model: {e}")
+                logger.error(f"Failed to generate content with Modal Gemma (vLLM): {e}")
                 raise e
         elif provider == "nvidia":
             if not NVIDIA_API_KEY:
@@ -389,6 +411,35 @@ def process_query_async(query_id: str, user_query: str):
             
         logger.info(f"Request fulfilled in {telemetry['latency_ms']}ms using {total_tokens} tokens.")
         
+        # Save conversation history for this session so follow-up questions
+        # can reference prior context within the idle timeout window.
+        if session_id:
+            try:
+                vol.reload()
+                history_dir = "/data/sessions"
+                os.makedirs(history_dir, exist_ok=True)
+                history_path = f"{history_dir}/{session_id}.json"
+                
+                # Load existing history
+                existing = []
+                if os.path.exists(history_path):
+                    with open(history_path, "r") as f:
+                        existing = json.load(f)
+                
+                # Append this exchange
+                existing.append({"role": "user", "content": user_query})
+                existing.append({"role": "assistant", "content": synth_text.strip()})
+                
+                # Keep only last 10 messages (5 exchanges) to bound storage
+                existing = existing[-10:]
+                
+                with open(history_path, "w") as f:
+                    json.dump(existing, f)
+                vol.commit()
+                logger.info(f"Saved conversation history for session {session_id} ({len(existing)} messages).")
+            except Exception as hist_err:
+                logger.error(f"Failed to save conversation history: {hist_err}")
+        
         update_status({
             "status": "completed",
             "response": synth_text.strip(),
@@ -464,7 +515,7 @@ def fastapi_app_entrypoint():
             return "nvidia"
         return "modal"
 
-    def call_llm(prompt: str, agent_type: str) -> dict:
+    def call_llm(prompt: str, agent_type: str, conversation_history: list = None) -> dict:
         """
         agent_type: 'guardian', 'architect', or 'synthesis'
         Returns: {"text": str, "tokens": int}
@@ -474,25 +525,29 @@ def fastapi_app_entrypoint():
         
         if provider == "modal":
             try:
-                gemma_cls = modal.Cls.from_name("acaicia-gemma-inference", "GemmaModel")
-                gemma_instance = gemma_cls()
-                max_tokens = 1024 if agent_type != "synthesis" else 2048
-                logger.info(f"Calling Modal Gemma 4 model for agent {agent_type}...")
+                if GEMMA_CLS is None:
+                    raise RuntimeError("Gemma inference class not available. Deploy acaicia-gemma-inference first.")
+                gemma_instance = GEMMA_CLS()
+                max_tokens = AGENT_MAX_TOKENS.get(agent_type, 1024)
+                temperature = AGENT_TEMPERATURE.get(agent_type, 0.7)
+                logger.info(f"Calling Modal Gemma (vLLM) for agent {agent_type} (max_tokens={max_tokens}, temp={temperature})...")
                 
-                # Remote execution on Modal
+                # Pass conversation history only for synthesis agent
+                history = conversation_history if agent_type == "synthesis" else None
                 text = gemma_instance.generate.remote(
                     prompt=prompt,
-                    temperature=1.0,
+                    temperature=temperature,
                     top_p=0.95,
                     top_k=64,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
+                    conversation_history=history,
                 )
                 
                 # Estimate tokens (1 token ~ 4 chars)
                 estimated_tokens = len(prompt) // 4 + len(text) // 4
                 return {"text": text.strip(), "tokens": estimated_tokens}
             except Exception as e:
-                logger.error(f"Failed to generate content with Modal Gemma 4 model: {e}")
+                logger.error(f"Failed to generate content with Modal Gemma (vLLM): {e}")
                 raise e
                 
         elif provider == "nvidia":
@@ -670,8 +725,27 @@ def fastapi_app_entrypoint():
                 }, f)
             vol.commit()
             
-            # Spawn the background task on Modal
-            process_query_async.spawn(query_id, request.query)
+            # Resolve conversation history: use what the frontend sent,
+            # or load from the session volume if a session_id was provided.
+            conversation_history = request.conversation_history
+            session_id = request.session_id
+            
+            if not conversation_history and session_id:
+                try:
+                    history_path = f"/data/sessions/{session_id}.json"
+                    if os.path.exists(history_path):
+                        with open(history_path, "r") as f:
+                            conversation_history = json.load(f)
+                        logger.info(f"Loaded {len(conversation_history)} messages from session {session_id}.")
+                except Exception as hist_err:
+                    logger.error(f"Failed to load session history: {hist_err}")
+            
+            # Spawn the background task on Modal with session context
+            process_query_async.spawn(
+                query_id, request.query,
+                session_id=session_id,
+                conversation_history=conversation_history,
+            )
             
             logger.info(f"Spawned background query job {query_id} for user query.")
             return {"query_id": query_id, "status": "processing"}

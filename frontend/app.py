@@ -1,6 +1,7 @@
 import os
 import asyncio
 import random
+import uuid
 import requests
 import chainlit as cl
 from chainlit.input_widget import Select
@@ -77,6 +78,12 @@ async def start():
     await temp_msg.send()
     # Store the message ID so we can remove it on first user message
     cl.user_session.set("temp_info_msg_id", temp_msg.id)
+    
+    # Initialize conversation tracking for multi-turn context.
+    # The session_id is sent to the backend so follow-up questions can
+    # reference prior answers within the same chat session.
+    cl.user_session.set("session_id", str(uuid.uuid4()))
+    cl.user_session.set("conversation_history", [])
 
     # Setup ChatSettings for LLM Provider
     settings = cl.ChatSettings([
@@ -146,11 +153,15 @@ async def main(message: cl.Message):
         return
 
     # 1. Post query to backend to initiate async task
+    session_id = cl.user_session.get("session_id")
     try:
         init_response = await asyncio.to_thread(
             requests.post,
             API_URL,
-            json={"query": user_query},
+            json={
+                "query": user_query,
+                "session_id": session_id,
+            },
             timeout=15
         )
         init_response.raise_for_status()
@@ -236,3 +247,12 @@ async def main(message: cl.Message):
 
     # Send the final response to the user
     await cl.Message(content=response_content, author="acAIcia").send()
+    
+    # Update conversation history for multi-turn context.
+    # This is stored locally in the Chainlit session and also persisted
+    # server-side by the backend (keyed by session_id).
+    history = cl.user_session.get("conversation_history", [])
+    history.append({"role": "user", "content": user_query})
+    history.append({"role": "assistant", "content": answer})
+    # Keep last 10 messages (5 exchanges) to bound memory
+    cl.user_session.set("conversation_history", history[-10:])
