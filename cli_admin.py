@@ -64,9 +64,10 @@ def configure_settings(env_path):
     print("1) Google Gemini API (gemini)")
     print("2) NVIDIA NIM API (nvidia)")
     print("3) Modal Gemma 4 (modal)")
+    print("4) DeepSeek API (deepseek)")
     
     current_provider = env_vars.get("LLM_PROVIDER", "gemini")
-    choice = input(f"Select choice (1-3) [current: {current_provider}]: ").strip()
+    choice = input(f"Select choice (1-4) [current: {current_provider}]: ").strip()
     
     provider = current_provider
     if choice == "1":
@@ -75,6 +76,8 @@ def configure_settings(env_path):
         provider = "nvidia"
     elif choice == "3":
         provider = "modal"
+    elif choice == "4":
+        provider = "deepseek"
         
     env_vars["LLM_PROVIDER"] = provider
     env_vars["USE_NVIDIA"] = "true" if provider == "nvidia" else "false"
@@ -92,6 +95,10 @@ def configure_settings(env_path):
     if hf_token:
         env_vars["HF_TOKEN"] = hf_token
         
+    deepseek_key = input(f"Enter DEEPSEEK_API_KEY [current: {env_vars.get('DEEPSEEK_API_KEY', 'not set')}]: ").strip()
+    if deepseek_key:
+        env_vars["DEEPSEEK_API_KEY"] = deepseek_key
+        
     # Write to local backend/.env
     write_env(env_path, env_vars)
     print("\n✓ Settings saved to local backend/.env successfully!")
@@ -105,7 +112,7 @@ def configure_settings(env_path):
         cmd = [modal_bin, "secret", "create", "acaicia-llm-secrets", "--force"]
         
         # Add variables
-        for key in ["LLM_PROVIDER", "USE_NVIDIA", "GOOGLE_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN"]:
+        for key in ["LLM_PROVIDER", "USE_NVIDIA", "GOOGLE_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN", "DEEPSEEK_API_KEY"]:
             if key in env_vars:
                 cmd.append(f'{key}={env_vars[key]}')
                 
@@ -200,13 +207,15 @@ def check_status(env_path):
             provider_display = {
                 "gemini": "Google Gemini API (gemini)",
                 "nvidia": "NVIDIA NIM API (nvidia)",
-                "modal": "Modal Gemma 4 Self-Hosted (modal)"
+                "modal": "Modal Gemma 4 Self-Hosted (modal)",
+                "deepseek": "DeepSeek API (deepseek)"
             }.get(provider, provider)
             
             print(f"\nActive LLM Provider: {provider_display}")
             print("-" * 40)
             print(f"Google API Key:      {'✅ Configured' if data.get('google_api_key_configured') else '❌ Missing'}")
             print(f"NVIDIA API Key:      {'✅ Configured' if data.get('nvidia_api_key_configured') else '❌ Missing'}")
+            print(f"DeepSeek API Key:    {'✅ Configured' if data.get('deepseek_api_key_configured') else '❌ Missing'}")
             print(f"Hugging Face Token:  {'✅ Configured' if data.get('hf_token_configured') else '⚠️ Missing (required for Gemma 4)'}")
             print(f"Configuration Source: {data.get('active_source', 'unknown')}")
             print("-" * 40)

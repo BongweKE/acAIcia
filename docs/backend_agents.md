@@ -94,11 +94,11 @@ Crucially, rather than making the user wait for logging to finish, the Backend r
 
 ## 5. Dynamic LLM Provider Routing
 
-acAIcia supports three distinct Large Language Model (LLM) backend providers. The active provider is resolved dynamically on each query.
+acAIcia supports four distinct Large Language Model (LLM) backend providers. The active provider is resolved dynamically on each query.
 
 ### A. Provider Resolution Logic
 When handling a query or settings request, the backend determines the active provider by checking configurations in the following order of precedence:
-1. **Persistent Volume Storage:** Reads `/data/settings.json` on the Modal persistent volume `acaicia-data-volume`. If a valid `llm_provider` exists (i.e. `gemini`, `nvidia`, or `modal`), it takes precedence.
+1. **Persistent Volume Storage:** Reads `/data/settings.json` on the Modal persistent volume `acaicia-data-volume`. If a valid `llm_provider` exists (i.e. `gemini`, `nvidia`, `modal`, or `deepseek`), it takes precedence.
 2. **Environment Variable:** Checks `LLM_PROVIDER` in Modal secrets or the local environment.
 3. **Legacy Flags:** Falls back to checking `USE_NVIDIA="true"` to trigger the NVIDIA provider, or defaults to `gemini` if no keys are found.
 
@@ -109,6 +109,7 @@ When handling a query or settings request, the backend determines the active pro
 | **Google Gemini API** | Guardian / Architect / Synthesis | `gemini-2.5-flash` | Requires `GOOGLE_API_KEY`<br>Used as a fallback to prevent quota limits |
 | **NVIDIA NIM API** | Guardian / Architect<br>Synthesis | `meta/llama-3.1-8b-instruct`<br>`meta/llama-3.3-70b-instruct` | Requires `NVIDIA_API_KEY`<br>Temperature: 0.20, Top-p: 0.70 |
 | **Modal Gemma 4** *(Default)* | Guardian / Architect / Synthesis | `google/gemma-4-E2B-it` | Default active provider<br>Requires `HF_TOKEN` (for gated access)<br>Runs on L4 GPU serverless instance<br>Uses recommended sampling: Temp 1.0, Top-p 0.95, Top-k 64 |
+| **DeepSeek API** | Guardian / Architect<br>Synthesis | `deepseek-chat`<br>`deepseek-reasoner` | Requires `DEEPSEEK_API_KEY`<br>OpenAI-compatible endpoint<br>Temperature: 0.20, Top-p: 0.70 |
 
 ### C. Self-Hosted Gemma 4 Inference Service
 The self-hosted Gemma 4 service is defined in `backend/gemma_inference.py` as an independent Modal App (`acaicia-gemma-inference`).
@@ -133,14 +134,16 @@ Fetches current configuration settings.
     "llm_provider": "modal",
     "google_api_key_configured": true,
     "nvidia_api_key_configured": false,
+    "deepseek_api_key_configured": false,
     "hf_token_configured": true,
     "active_source": "volume"
   }
   ```
 * **Fields:**
-  - `llm_provider`: The currently active provider (`gemini` / `nvidia` / `modal`).
+  - `llm_provider`: The currently active provider (`gemini` / `nvidia` / `modal` / `deepseek`).
   - `google_api_key_configured`: Boolean indicating whether `GOOGLE_API_KEY` is set.
   - `nvidia_api_key_configured`: Boolean indicating whether `NVIDIA_API_KEY` is set.
+  - `deepseek_api_key_configured`: Boolean indicating whether `DEEPSEEK_API_KEY` is set.
   - `hf_token_configured`: Boolean indicating whether `HF_TOKEN` is set.
   - `active_source`: Source of the active provider configuration (`volume` if loaded from persistent settings volume, `env` if loaded from environment, or `default` fallback).
 

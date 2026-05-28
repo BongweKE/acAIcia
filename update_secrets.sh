@@ -5,7 +5,7 @@ echo "=== acAIcia Modal Secret Updater ==="
 echo "This script will update your 'acaicia-llm-secrets' in Modal."
 
 # Prompt for LLM_PROVIDER
-read -p "Select LLM Provider (gemini/nvidia/modal) [default: gemini]: " llm_provider
+read -p "Select LLM Provider (gemini/nvidia/modal/deepseek) [default: gemini]: " llm_provider
 llm_provider=${llm_provider:-gemini}
 
 # Prompt for Google API Key
@@ -24,6 +24,9 @@ read -p "Enter NVIDIA_API_KEY (required if provider is nvidia, leave blank to ke
 # Prompt for HF_TOKEN
 read -p "Enter HuggingFace HF_TOKEN (required for modal Gemma 4, leave blank to keep existing/skip): " hf_token
 
+# Prompt for DEEPSEEK_API_KEY
+read -p "Enter DEEPSEEK_API_KEY (required if provider is deepseek, leave blank to keep existing/skip): " deepseek_api_key
+
 # Build the command string safely
 cmd="modal secret create acaicia-llm-secrets --force"
 
@@ -40,6 +43,10 @@ fi
 
 if [ ! -z "$hf_token" ]; then
     cmd="$cmd HF_TOKEN=$hf_token"
+fi
+
+if [ ! -z "$deepseek_api_key" ]; then
+    cmd="$cmd DEEPSEEK_API_KEY=$deepseek_api_key"
 fi
 
 echo ""

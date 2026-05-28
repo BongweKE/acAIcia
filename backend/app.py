@@ -35,6 +35,7 @@ class SettingsResponse(BaseModel):
     llm_provider: str
     google_api_key_configured: bool
     nvidia_api_key_configured: bool
+    deepseek_api_key_configured: bool
     hf_token_configured: bool
     active_source: str
 
@@ -108,12 +109,12 @@ def process_query_async(query_id: str, user_query: str):
                 with open("/data/settings.json", "r") as f:
                     data = json.load(f)
                     provider = data.get("llm_provider")
-                    if provider in ["gemini", "nvidia", "modal"]:
+                    if provider in ["gemini", "nvidia", "modal", "deepseek"]:
                         return provider
         except Exception as e:
             logger.error(f"Error reading settings from volume: {e}")
         env_provider = os.environ.get("LLM_PROVIDER")
-        if env_provider in ["gemini", "nvidia", "modal"]:
+        if env_provider in ["gemini", "nvidia", "modal", "deepseek"]:
             return env_provider
         if USE_NVIDIA:
             return "nvidia"
@@ -173,6 +174,40 @@ def process_query_async(query_id: str, user_query: str):
                 return {"text": text, "tokens": tokens}
             except Exception as e:
                 logger.error(f"Failed to generate content with NVIDIA API: {e}")
+                raise e
+        elif provider == "deepseek":
+            DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+            if not DEEPSEEK_API_KEY:
+                raise RuntimeError("DeepSeek provider active, but DEEPSEEK_API_KEY is not configured.")
+            model_map = {
+                "guardian": "deepseek-chat",
+                "architect": "deepseek-chat",
+                "synthesis": "deepseek-reasoner"
+            }
+            model = model_map.get(agent_type, "deepseek-chat")
+            invoke_url = "https://api.deepseek.com/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1024 if agent_type != "synthesis" else 2048,
+                "temperature": 0.20,
+                "top_p": 0.70
+            }
+            try:
+                response = requests.post(invoke_url, headers=headers, json=payload, timeout=60)
+                if response.status_code != 200:
+                    logger.error(f"DeepSeek API Error [{response.status_code}]: {response.text}")
+                    raise Exception(f"DeepSeek LLM Generation Failed with status {response.status_code}")
+                data = response.json()
+                text = data["choices"][0]["message"]["content"]
+                tokens = data.get("usage", {}).get("total_tokens", 0)
+                return {"text": text, "tokens": tokens}
+            except Exception as e:
+                logger.error(f"Failed to generate content with DeepSeek API: {e}")
                 raise e
         else: # gemini
             if not ai_client:
@@ -390,6 +425,7 @@ def fastapi_app_entrypoint():
     # Initialize API Clients
     GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
     NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
+    DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
     SUPABASE_URL = os.environ.get("SUPABASE_URL")
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
     USE_NVIDIA = os.environ.get("USE_NVIDIA", "false").lower() == "true"
@@ -413,14 +449,14 @@ def fastapi_app_entrypoint():
                 with open("/data/settings.json", "r") as f:
                     data = json.load(f)
                     provider = data.get("llm_provider")
-                    if provider in ["gemini", "nvidia", "modal"]:
+                    if provider in ["gemini", "nvidia", "modal", "deepseek"]:
                         return provider
         except Exception as e:
             logger.error(f"Error reading settings from volume: {e}")
 
         # Fallback 1: Environment variable
         env_provider = os.environ.get("LLM_PROVIDER")
-        if env_provider in ["gemini", "nvidia", "modal"]:
+        if env_provider in ["gemini", "nvidia", "modal", "deepseek"]:
             return env_provider
 
         # Fallback 2: Old flags
@@ -493,6 +529,39 @@ def fastapi_app_entrypoint():
             except Exception as e:
                 logger.error(f"Failed to generate content with NVIDIA API: {e}")
                 raise e
+        elif provider == "deepseek":
+            if not DEEPSEEK_API_KEY:
+                raise RuntimeError("DeepSeek provider active, but DEEPSEEK_API_KEY is not configured.")
+            model_map = {
+                "guardian": "deepseek-chat",
+                "architect": "deepseek-chat",
+                "synthesis": "deepseek-reasoner"
+            }
+            model = model_map.get(agent_type, "deepseek-chat")
+            invoke_url = "https://api.deepseek.com/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1024 if agent_type != "synthesis" else 2048,
+                "temperature": 0.20,
+                "top_p": 0.70
+            }
+            try:
+                response = requests.post(invoke_url, headers=headers, json=payload, timeout=60)
+                if response.status_code != 200:
+                    logger.error(f"DeepSeek API Error [{response.status_code}]: {response.text}")
+                    raise Exception(f"DeepSeek LLM Generation Failed with status {response.status_code}")
+                data = response.json()
+                text = data["choices"][0]["message"]["content"]
+                tokens = data.get("usage", {}).get("total_tokens", 0)
+                return {"text": text, "tokens": tokens}
+            except Exception as e:
+                logger.error(f"Failed to generate content with DeepSeek API: {e}")
+                raise e
         else: # gemini
             if not ai_client:
                 raise RuntimeError("Gemini provider active, but GOOGLE_API_KEY is not configured.")
@@ -526,7 +595,7 @@ def fastapi_app_entrypoint():
                 with open("/data/settings.json", "r") as f:
                     data = json.load(f)
                     val = data.get("llm_provider")
-                    if val in ["gemini", "nvidia", "modal"]:
+                    if val in ["gemini", "nvidia", "modal", "deepseek"]:
                         provider = val
                         active_source = "volume"
             except Exception as e:
@@ -534,7 +603,7 @@ def fastapi_app_entrypoint():
                 
         if active_source == "default":
             env_provider = os.environ.get("LLM_PROVIDER")
-            if env_provider in ["gemini", "nvidia", "modal"]:
+            if env_provider in ["gemini", "nvidia", "modal", "deepseek"]:
                 provider = env_provider
                 active_source = "env"
             elif USE_NVIDIA:
@@ -545,15 +614,16 @@ def fastapi_app_entrypoint():
             llm_provider=provider,
             google_api_key_configured=bool(GOOGLE_API_KEY),
             nvidia_api_key_configured=bool(NVIDIA_API_KEY),
+            deepseek_api_key_configured=bool(os.environ.get("DEEPSEEK_API_KEY")),
             hf_token_configured=bool(os.environ.get("HF_TOKEN")),
             active_source=active_source
         )
 
     @fastapi_app.post("/settings", response_model=SettingsResponse)
     def update_settings(request: SettingsRequest):
-        if request.llm_provider not in ["gemini", "nvidia", "modal"]:
+        if request.llm_provider not in ["gemini", "nvidia", "modal", "deepseek"]:
             from fastapi import HTTPException
-            raise HTTPException(status_code=400, detail="Invalid LLM provider. Must be 'gemini', 'nvidia', or 'modal'.")
+            raise HTTPException(status_code=400, detail="Invalid LLM provider. Must be 'gemini', 'nvidia', 'modal', or 'deepseek'.")
             
         try:
             vol.reload()
@@ -570,6 +640,7 @@ def fastapi_app_entrypoint():
             llm_provider=request.llm_provider,
             google_api_key_configured=bool(GOOGLE_API_KEY),
             nvidia_api_key_configured=bool(NVIDIA_API_KEY),
+            deepseek_api_key_configured=bool(os.environ.get("DEEPSEEK_API_KEY")),
             hf_token_configured=bool(os.environ.get("HF_TOKEN")),
             active_source="volume"
         )

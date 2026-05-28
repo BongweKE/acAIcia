@@ -22,6 +22,7 @@ flowchart TD
         API -->|Option 1: Gemini API| Gemini[Google AI Studio]
         API -->|Option 2: NVIDIA NIM API| NIM[NVIDIA NIM endpoints]
         API <-->|Option 3: Modal RPC| Gemma[Modal Gemma 4 Inference Service]
+        API -->|Option 4: DeepSeek API| DeepSeek[DeepSeek API]
     end
     
     %% Ingestion

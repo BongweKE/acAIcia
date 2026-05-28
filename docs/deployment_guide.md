@@ -45,7 +45,7 @@ To configure this easily, use the provided interactive script in the root direct
 ```bash
 ./update_secrets.sh
 ```
-*(Alternatively, configure manually: `modal secret create acaicia-llm-secrets LLM_PROVIDER="modal" GOOGLE_API_KEY="..." NVIDIA_API_KEY="..." HF_TOKEN="..." USE_NVIDIA="false"`)*
+*(Alternatively, configure manually: `modal secret create acaicia-llm-secrets LLM_PROVIDER="modal" GOOGLE_API_KEY="..." NVIDIA_API_KEY="..." DEEPSEEK_API_KEY="..." HF_TOKEN="..." USE_NVIDIA="false"`)*
 
 > [!WARNING]
 > **Container Lifecycle and Secrets Cache:** Modal keeps container instances warm to minimize cold starts. When you update Modal secrets (e.g. updating API keys), currently warm containers will **NOT** automatically pick up the new secret values. You must stop the warm instances (e.g., `modal app stop acaicia-backend`) or redeploy them to force Modal to spin up fresh container instances loading the new secret payloads.
@@ -62,7 +62,7 @@ Run the administration console from your project root:
 python cli_admin.py
 ```
 This tool offers an interactive menu:
-1. **Configure Local & Modal Cloud LLM Settings:** Prompts you to choose your LLM provider (`gemini`, `nvidia`, or `modal`), input API keys (`GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `HF_TOKEN`), writes them to a local `backend/.env` file, updates the `acaicia-llm-secrets` secret on Modal, and attempts to sync the active LLM provider choice directly with the persistent volume `/data/settings.json` on your deployed backend.
+1. **Configure Local & Modal Cloud LLM Settings:** Prompts you to choose your LLM provider (`gemini`, `nvidia`, `modal`, or `deepseek`), input API keys (`GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `DEEPSEEK_API_KEY`, `HF_TOKEN`), writes them to a local `backend/.env` file, updates the `acaicia-llm-secrets` secret on Modal, and attempts to sync the active LLM provider choice directly with the persistent volume `/data/settings.json` on your deployed backend.
 2. **Deploy Gemma 4 Inference App to Modal:** Packages and deploys the independent model server `gemma_inference.py`.
 3. **Deploy Main FastAPI Backend App to Modal:** Packages and deploys the router API `app.py`.
 4. **Check Remote Backend & Credentials Status:** Contacts the backend API endpoints to confirm credential validity and view the active cloud LLM provider configuration.

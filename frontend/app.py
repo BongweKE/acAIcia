@@ -1,5 +1,6 @@
 import os
 import asyncio
+import random
 import requests
 import chainlit as cl
 from chainlit.input_widget import Select
@@ -15,15 +16,27 @@ SETTINGS_URL = API_URL.replace("/query", "/settings")
 
 FRONTEND_DIR = Path(__file__).parent
 
+# Curated array of thinking/processing phrases shown during query execution.
+# To customize: add, remove, or modify entries in this list.
+# A random phrase is selected on each query and refreshed every ~8 seconds.
+THINKING_PHRASES = [
+    "Thinking...",
+    "Researching...",
+    "Analyzing...",
+    "Consulting the knowledge base...",
+    "Synthesizing findings...",
+    "Reviewing literature...",
+    "Cross-referencing sources...",
+    "Formulating response...",
+    "Exploring the evidence...",
+    "Processing your query...",
+]
+
 @cl.on_chat_start
 async def start():
 
-
     # Fetch backend settings on startup (with retries for backend cold start)
     provider_name = "gemini"
-    google_ok = False
-    nvidia_ok = False
-    hf_ok = False
     backend_connected = False
     
     max_retries = 6
@@ -34,9 +47,6 @@ async def start():
             if res.status_code == 200:
                 settings = res.json()
                 provider_name = settings.get("llm_provider", "gemini")
-                google_ok = settings.get("google_api_key_configured", False)
-                nvidia_ok = settings.get("nvidia_api_key_configured", False)
-                hf_ok = settings.get("hf_token_configured", False)
                 backend_connected = True
                 break
         except Exception:
@@ -45,16 +55,8 @@ async def start():
             else:
                 pass
 
-    # Build welcome message
-    if backend_connected:
-        google_status = "Configured" if google_ok else "Missing"
-        google_class = "status-configured" if google_ok else "status-missing"
-        nvidia_status = "Configured" if nvidia_ok else "Missing"
-        nvidia_class = "status-configured" if nvidia_ok else "status-missing"
-        hf_status = "Configured" if hf_ok else "Missing"
-        hf_class = "status-configured" if hf_ok else "status-missing"
-        
-        welcome_html = f"""<div class="acaicia-welcome-card">
+    # Build main welcome card — logo, name, tagline only
+    welcome_html = """<div class="acaicia-welcome-card">
 <div class="acaicia-welcome-header">
 <div class="acaicia-logo-emoji">🌿</div>
 <div class="acaicia-title-container">
@@ -62,44 +64,19 @@ async def start():
 <p class="acaicia-subtitle">CIFOR-ICRAF Expert Research Assistant</p>
 </div>
 </div>
-<p class="acaicia-description">Ask me questions related to forestry, agroforestry, climate change, biodiversity, and CIFOR-ICRAF's research areas. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.</p>
-<div class="credentials-dashboard">
-<div class="credentials-header">System Credentials Status</div>
-<div class="credential-item">
-<span class="credential-label">Google Gemini API Key</span>
-<span class="credential-value {google_class}">{google_status}</span>
-</div>
-<div class="credential-item">
-<span class="credential-label">NVIDIA NIM API Key</span>
-<span class="credential-value {nvidia_class}">{nvidia_status}</span>
-</div>
-<div class="credential-item border-top-divider">
-<span class="credential-label">Hugging Face Token</span>
-<span class="credential-value {hf_class}">{hf_status}</span>
-</div>
-</div>
-<div class="settings-helper-tip">💡 Use the **Chat Settings** panel to dynamically switch between LLM providers (Google Gemini, NVIDIA NIM, or self-hosted Modal Gemma 4).</div>
-</div>"""
-    else:
-        welcome_html = """<div class="acaicia-welcome-card">
-<div class="acaicia-welcome-header">
-<div class="acaicia-logo-emoji">🌿</div>
-<div class="acaicia-title-container">
-<h1 class="acaicia-title">acAIcia</h1>
-<p class="acaicia-subtitle">CIFOR-ICRAF Expert Research Assistant</p>
-</div>
-</div>
-<p class="acaicia-description">Ask me questions related to forestry, agroforestry, climate change, biodiversity, and CIFOR-ICRAF's research areas. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.</p>
-<div class="credentials-dashboard">
-<div class="credentials-header">System Credentials Status</div>
-<div class="credential-item" style="color: #dc2626; font-weight: 600; justify-content: center;">
-⚠️ Could not reach the backend settings API. Operating in query-only mode.
-</div>
-</div>
-<div class="settings-helper-tip">💡 Make sure the backend server is running and accessible.</div>
 </div>"""
 
     await cl.Message(content=welcome_html, author="acAIcia").send()
+
+    # Build temporary description card — removed on first user message
+    desc_html = """<div class="acaicia-info-card">
+<p class="acaicia-info-text">Ask me questions related to forestry, agroforestry, climate change, biodiversity, and CIFOR-ICRAF's research areas. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.</p>
+</div>"""
+
+    temp_msg = cl.Message(content=desc_html, author="acAIcia")
+    await temp_msg.send()
+    # Store the message ID so we can remove it on first user message
+    cl.user_session.set("temp_info_msg_id", temp_msg.id)
 
     # Setup ChatSettings for LLM Provider
     settings = cl.ChatSettings([
@@ -110,6 +87,7 @@ async def start():
             items={
                 "Google Gemini API": "gemini",
                 "NVIDIA NIM API": "nvidia",
+                "DeepSeek API": "deepseek",
                 "Modal Gemma 4 (Self-Hosted)": "modal"
             }
         )
@@ -133,6 +111,7 @@ async def setup_agent(settings):
             provider_display = {
                 "gemini": "Google Gemini API",
                 "nvidia": "NVIDIA NIM API",
+                "deepseek": "DeepSeek API",
                 "modal": "Modal Gemma 4 (Self-Hosted)"
             }.get(provider, provider)
             await cl.Message(content=f"⚙️ **System Update:** LLM provider changed to `{provider_display}` successfully.", author="acAIcia").send()
@@ -144,6 +123,15 @@ async def setup_agent(settings):
 @cl.on_message
 async def main(message: cl.Message):
     user_query = message.content.strip()
+
+    # Remove the temporary info card on first message
+    temp_msg_id = cl.user_session.get("temp_info_msg_id")
+    if temp_msg_id:
+        try:
+            await cl.Message(id=temp_msg_id, content="").remove()
+        except Exception:
+            pass  # Already removed or not found
+        cl.user_session.set("temp_info_msg_id", None)
     
     # Warning for file uploads
     if message.elements:
@@ -175,7 +163,7 @@ async def main(message: cl.Message):
         await cl.Message(content=f"⚠️ An error occurred while connecting to the backend: {e}", author="acAIcia").send()
         return
 
-    # 2. Poll status API with a visual step
+    # 2. Poll status API with a visual step and randomized thinking phrases
     status_url = API_URL.replace("/query", f"/query/status/{query_id}")
     max_polls = 120  # 4 minutes maximum wait time
     poll_interval = 2.0  # poll every 2 seconds
@@ -184,9 +172,13 @@ async def main(message: cl.Message):
     sources = []
     
     async with cl.Step(name="acAIcia Multi-Agent Pipeline", type="run") as step:
+        phrase = random.choice(THINKING_PHRASES)
         for poll_idx in range(max_polls):
-            elapsed = int(poll_idx * poll_interval)
-            step.output = f"Executing agent pipeline... (elapsed: {elapsed}s)"
+            # Refresh the thinking phrase every ~8 seconds (4 polls)
+            if poll_idx % 4 == 0 and poll_idx > 0:
+                phrase = random.choice(THINKING_PHRASES)
+            
+            step.output = f"🌿 {phrase}"
             await step.update()
             
             try:

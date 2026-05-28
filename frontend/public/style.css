@@ -113,6 +113,38 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     color: #cddbcf;
 }
 
+/* Temporary info card — shown below welcome card, removed on first message */
+.acaicia-info-card {
+    max-width: 650px;
+    margin: 0 auto 1rem auto;
+    padding: 0.75rem 1.5rem;
+    animation: fade-in 0.6s ease-out;
+}
+
+@keyframes fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.acaicia-info-text {
+    font-style: italic;
+    color: #7a8a7d;
+    font-size: 0.93rem;
+    line-height: 1.6;
+    text-align: center;
+    margin: 0;
+}
+
+.dark .acaicia-info-text {
+    color: #8fa794;
+}
+
 /* Credentials dashboard section */
 .credentials-dashboard {
     background: rgba(43, 93, 52, 0.03);

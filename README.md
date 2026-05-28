@@ -36,7 +36,7 @@ For the easiest setup, we provide an interactive command-line administration too
    ```bash
    python cli_admin.py
    ```
-   - Select option **1** to configure your LLM credentials (including the optional Hugging Face `HF_TOKEN` for self-hosted Gemma 4) and sync settings.
+   - Select option **1** to configure your LLM credentials (including the optional Hugging Face `HF_TOKEN` for self-hosted Gemma 4, and optional `DEEPSEEK_API_KEY` for DeepSeek API) and sync settings.
    - Select option **2** to deploy the Gemma 4 Inference app (`gemma_inference.py`) to Modal.
    - Select option **3** to deploy the main FastAPI Backend router app (`app.py`) to Modal.
 

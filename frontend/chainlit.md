@@ -5,4 +5,6 @@
 ### How to use:
 1. **Ask a question:** Type your query related to forestry, agroforestry, climate change, or biodiversity in the input box below.
 2. **View citations:** Expand the citation blocks at the bottom of the response to see original publications and their DOIs.
-3. **Change LLM Provider:** Click the **Chat Settings** icon in the message composer to dynamically switch between Google Gemini, NVIDIA NIM, or self-hosted Modal Gemma 4.
+3. **Change LLM Provider:** Click the **Chat Settings** icon in the message composer to dynamically switch between Google Gemini, NVIDIA NIM, DeepSeek, or self-hosted Modal Gemma 4.
+
+> 💡 **Tip:** Use the Chat Settings panel to dynamically switch between LLM providers at any time. Each provider has different strengths — experiment to find the best fit for your queries.
