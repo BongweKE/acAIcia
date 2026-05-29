@@ -38,9 +38,9 @@ public_dir = frontend_dir / "public"
 if public_dir.exists():
     image = image.add_local_dir(public_dir, "/root/public")
 
-config_path = frontend_dir / ".chainlit" / "config.toml"
-if config_path.exists():
-    image = image.add_local_file(config_path, "/root/.chainlit/config.toml")
+config_dir = frontend_dir / ".chainlit"
+if config_dir.exists():
+    image = image.add_local_dir(config_dir, "/root/.chainlit")
 
 chainlit_md_path = frontend_dir / "chainlit.md"
 if chainlit_md_path.exists():
