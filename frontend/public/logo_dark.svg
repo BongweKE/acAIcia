@@ -20,29 +20,30 @@
 
   <!-- Grouped Icon scaled and translated -->
   <g transform="translate(5, 5) scale(0.7)">
-    <!-- Base Circle -->
-    <circle cx="50" cy="50" r="48" fill="url(#bg-grad)" filter="url(#shadow)" />
-    
-    <!-- Subtle Inner Border -->
-    <circle cx="50" cy="50" r="44" fill="none" stroke="#ffffff" stroke-opacity="0.15" stroke-width="2" />
-
-    <!-- Organic Leaf Path -->
-    <path d="M 50 25 
-             C 65 35, 75 55, 70 70 
-             C 55 75, 35 65, 30 50 
-             C 25 35, 45 28, 50 25 Z" 
-          fill="url(#leaf-grad)" />
-          
-    <!-- Leaf Center Vein -->
-    <path d="M 50 25 
-             C 48 40, 48 55, 40 68" 
-          fill="none" stroke="#2b5d34" stroke-width="2" stroke-linecap="round" stroke-opacity="0.7" />
-
-    <!-- Leaf Side Veins -->
-    <path d="M 47 42 C 40 40, 36 42, 36 42" fill="none" stroke="#2b5d34" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.6" />
-    <path d="M 48 52 C 41 53, 35 58, 35 58" fill="none" stroke="#2b5d34" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.6" />
-    <path d="M 49 47 C 55 45, 60 48, 60 48" fill="none" stroke="#2b5d34" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.6" />
-    <path d="M 48 57 C 56 58, 62 64, 62 64" fill="none" stroke="#2b5d34" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.6" />
+    <g fill="#ffffff">
+      <!-- Trunk and Branches -->
+      <path d="M 47 80 
+               C 47 70, 48 62, 46 56
+               C 44 50, 36 46, 28 43
+               L 30 40
+               C 38 43, 45 47, 48 52
+               C 49 48, 51 45, 54 42
+               C 60 38, 68 37, 76 36
+               L 77 39
+               C 70 40, 62 41, 57 45
+               C 54 49, 52 56, 52 80 Z" />
+      <!-- Additional branches -->
+      <path d="M 48 54 C 45 50, 41 47, 36 45 L 37 42 C 43 44, 47 48, 49 51 Z" />
+      <path d="M 54 48 C 57 44, 63 41, 69 40 L 70 43 C 65 44, 59 47, 56 51 Z" />
+      
+      <!-- Foliage (Acacia Flat Canopy Layers) -->
+      <ellipse cx="50" cy="30" rx="36" ry="7" />
+      <ellipse cx="32" cy="38" rx="22" ry="6" />
+      <ellipse cx="68" cy="38" rx="22" ry="6" />
+      <ellipse cx="50" cy="24" rx="24" ry="5" />
+      <ellipse cx="18" cy="41" rx="10" ry="4" />
+      <ellipse cx="82" cy="41" rx="10" ry="4" />
+    </g>
   </g>
 
   <!-- Text -->

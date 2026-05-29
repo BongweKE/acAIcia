@@ -1,6 +1,6 @@
 # acAIcia
 
-**CIFOR-ICRAF Knowledge Base AI Assistant**
+**Landscape Alliance Knowledge Base AI Assistant**
 
 acAIcia is a robust, highly modular AI application designed to securely aggregate, chunk, encode, and intelligently query vast internal research documents natively focusing on agricultural, forestry, and climate-change contexts. 
 

@@ -120,7 +120,7 @@ name = "acAIcia"
 confirm_new_chat = true
 
 # Description of the assistant. This is used for HTML tags.
-description = "CIFOR-ICRAF Expert Research Assistant"
+description = "Landscape Alliance Expert Research Assistant"
 
 # Chain of Thought (CoT) display mode. Can be "hidden", "tool_call" or "full".
 cot = "hidden"

@@ -71,7 +71,7 @@ sequenceDiagram
 ## Exploring the Agents & Fallbacks
 
 1. **Guardian Agent (Gemini 2.5 Flash)**
-   The fastest and cheapest interceptor. If a user asks about political opinions or general recipes, the Guardian immediately branches into the **FAIL path**, protecting the entire system from wasting expensive context tokens downstream. It guarantees interactions remain strictly within the CIFOR-ICRAF mandate.
+   The fastest and cheapest interceptor. If a user asks about political opinions or general recipes, the Guardian immediately branches into the **FAIL path**, protecting the entire system from wasting expensive context tokens downstream. It guarantees interactions remain strictly within the CIFOR-ICRAF mandate (maintained for LLM context compatibility).
 
 2. **Architect Agent (Gemini 2.5 Flash)**
    Conversational inputs naturally make terrible search queries. Passing the safeguard, the architect strips stop-words and reformulates intents to maximize semantic density. This ensures the string sent to the local `sentence-transformers` library produces a vector highly aligned for cosine-similarity matching against the chunks in the database.
@@ -82,7 +82,7 @@ sequenceDiagram
 4. **Synthesis Agent (Gemini 2.5 Pro)**
    The powerhouse node. The Synthesis Agent receives two distinct prompts based on the results from Supabase:
    * **The Citation Prompt:** If vectors match, it instructs the agent to answer with rigorous inline citations `[Author, Year]`, ignoring any chunk information that contradicts the query.
-   * **The Fallback Prompt:** If no internal knowledge is retrieved, the agent uses its baseline scientific training to attempt an answer, but its system prompt mandates it warn the user that the knowledge is unsupported by the internal CIFOR-ICRAF knowledge base.
+   * **The Fallback Prompt:** If no internal knowledge is retrieved, the agent uses its baseline scientific training to attempt an answer, but its system prompt mandates it warn the user that the knowledge is unsupported by the internal Landscape Alliance knowledge base.
 
 ## Non-Blocking Asynchronous Telemetry
 

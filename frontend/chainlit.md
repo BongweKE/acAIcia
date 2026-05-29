@@ -1,6 +1,6 @@
-# Welcome to acAIcia 🌿
+# Welcome to acAIcia 🌳
 
-**acAIcia** is the CIFOR-ICRAF Expert Research Assistant. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.
+**acAIcia** is the Landscape Alliance Expert Research Assistant. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.
 
 ### How to use:
 1. **Ask a question:** Type your query related to forestry, agroforestry, climate change, or biodiversity in the input box below.

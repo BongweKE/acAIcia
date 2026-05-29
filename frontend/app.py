@@ -64,10 +64,22 @@ async def start():
     # Build main welcome card — logo, name, tagline only
     welcome_html = """<div class="acaicia-welcome-card">
 <div class="acaicia-welcome-header">
-<div class="acaicia-logo-emoji">🌿</div>
+<svg class="acaicia-logo-svg" viewBox="0 0 100 100" width="64" height="64">
+  <g class="acacia-fill">
+    <path d="M 47 80 C 47 70, 48 62, 46 56 C 44 50, 36 46, 28 43 L 30 40 C 38 43, 45 47, 48 52 C 49 48, 51 45, 54 42 C 60 38, 68 37, 76 36 L 77 39 C 70 40, 62 41, 57 45 C 54 49, 52 56, 52 80 Z" />
+    <path d="M 48 54 C 45 50, 41 47, 36 45 L 37 42 C 43 44, 47 48, 49 51 Z" />
+    <path d="M 54 48 C 57 44, 63 41, 69 40 L 70 43 C 65 44, 59 47, 56 51 Z" />
+    <ellipse cx="50" cy="30" rx="36" ry="7" />
+    <ellipse cx="32" cy="38" rx="22" ry="6" />
+    <ellipse cx="68" cy="38" rx="22" ry="6" />
+    <ellipse cx="50" cy="24" rx="24" ry="5" />
+    <ellipse cx="18" cy="41" rx="10" ry="4" />
+    <ellipse cx="82" cy="41" rx="10" ry="4" />
+  </g>
+</svg>
 <div class="acaicia-title-container">
 <h1 class="acaicia-title">acAIcia</h1>
-<p class="acaicia-subtitle">CIFOR-ICRAF Expert Research Assistant</p>
+<p class="acaicia-subtitle">Landscape Alliance Expert Research Assistant</p>
 </div>
 </div>
 </div>"""
@@ -76,7 +88,7 @@ async def start():
 
     # Build temporary description card — removed on first user message
     desc_html = """<div class="acaicia-info-card">
-<p class="acaicia-info-text">Ask me questions related to forestry, agroforestry, climate change, biodiversity, and CIFOR-ICRAF's research areas. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.</p>
+<p class="acaicia-info-text">Ask me questions related to forestry, agroforestry, climate change, biodiversity, and Landscape Alliance's research areas. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.</p>
 </div>"""
 
     temp_msg = cl.Message(content=desc_html, author="acAIcia")

@@ -88,3 +88,17 @@ Frontend (Chainlit)           Backend (FastAPI)           Gemma Inference (vLLM)
 | Follow-up queries | No context | Full context | **New capability** |
 
 
+# Extra Changes:
+
+modify the base image in backend/gemma_inference.py to use nvidia/cuda:12.4.0-devel-ubuntu22.04 instead of a plain debian-slim image. This will provide the CUDA toolkit and nvcc compiler needed for FlashInfer/vLLM JIT compilation, allowing google/gemma-4-E2B-it to load without errors.
+
+
+change the image back to debian_slim (which is much lighter and loads faster) and add the VLLM_USE_FLASHINFER_SAMPLER=0 and VLLM_DISABLE_FLASHINFER=1 environment variables to completely avoid JIT compilation of FlashInfer kernels.
+
+modify backend/gemma_inference.py to:
+
+Explicitly list transformers in the image installation.
+
+Initialize and cache the HuggingFace AutoTokenizer locally inside the @modal.enter method.
+
+Use the cached self._tokenizer inside generate rather than attempting to access the version-dependent internal engine attribute self._engine.engine.tokenizer.tokenizer. This completely resolves the AttributeError: 'AsyncLLM' object has no attribute 'engine' issue.

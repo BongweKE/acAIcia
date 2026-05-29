@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md)
 
-This dedicated document outlines the high-level infrastructure, multi-agent logic flow, and data pipelines powering **acAIcia**, the CIFOR-ICRAF Research Assistant.
+This dedicated document outlines the high-level infrastructure, multi-agent logic flow, and data pipelines powering **acAIcia**, the Landscape Alliance Research Assistant.
 
 ## 1. High-Level Operations Overview
 

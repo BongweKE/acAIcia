@@ -320,7 +320,7 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                 
             update_status({
                 "status": "completed",
-                "response": "I'm sorry, I can only assist with queries related to forestry, agroforestry, climate change, and CIFOR-ICRAF's research areas.",
+                "response": "I'm sorry, I can only assist with queries related to forestry, agroforestry, climate change, and Landscape Alliance's research areas.",
                 "sources": []
             })
             return
@@ -374,7 +374,7 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                 year = r.get('publication_year') or 'n.d.'
                 chunk = r.get('chunk_text', '')
                 
-                context_text += f"\n[Document {i+1}] Title: {title}\nAuthors: {authors}\nYear: {year}\nExcerpt: {chunk}\n"
+                context_text += f"\nDocument {i+1}:\nTitle: {title}\nAuthors: {authors}\nYear: {year}\nExcerpt: {chunk}\n"
                 
                 source_meta = {
                     "title": title,
@@ -387,22 +387,26 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                     sources.append(source_meta)
             
             synthesis_prompt = f"""
-            You are acAIcia, an expert research assistant for CIFOR-ICRAF. 
-            Answer the user's query using *only* the provided excerpts below. 
-            Maintain a professional, academic tone. 
-            Cite the authors and year at the relevant points in your answer (e.g., [Authors, Year]).
-            
+            You are acAIcia, an expert research assistant for Landscape Alliance (formerly CIFOR-ICRAF). 
+            Your goal is to answer the user's query professionally and academically using ONLY the provided excerpts below. 
+
+            CRITICAL CITATION RULES:
+            1. You MUST cite the source of information at the relevant points in your answer using the exact format: [Author(s), Year] (e.g., [Hoang et al., 2010]).
+            2. DO NOT use document index citations like "[Document 1]", "[Document 2]", or "[1]", "[2]" in your response text.
+            3. If an excerpt has no authors, use the Title or 'Landscape Alliance' and the Year (e.g., [Landscape Alliance, 2020]).
+            4. Ensure every claim you make is backed by a specific inline citation in the [Author(s), Year] format.
+
             User's Original Query: {user_query}
-            
+
             Excerpts from internal knowledge base:
             {context_text}
             """
         else:
             telemetry["synthesis_source"] = "general_knowledge_fallback"
             synthesis_prompt = f"""
-            You are acAIcia, an expert research assistant for CIFOR-ICRAF. 
+            You are acAIcia, an expert research assistant for Landscape Alliance (formerly CIFOR-ICRAF). 
             The internal database lacks this information. Provide a general scientific answer to the query based on your training data. 
-            Explicitly state that this information does not come from the CIFOR-ICRAF knowledge base.
+            Explicitly state that this information does not come from the Landscape Alliance knowledge base.
             
             User's Query: {user_query}
             """
