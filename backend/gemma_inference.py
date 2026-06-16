@@ -274,7 +274,7 @@ class GemmaModel:
         # 2. Commit the cache volume to persist weights and Triton cache
         try:
             print("Committing HuggingFace cache volume on exit...")
-            hf_cache_vol.commit()
+            await hf_cache_vol.commit.aio()
             print("Volume committed successfully.")
         except Exception as e:
             print(f"Failed to commit volume (non-fatal): {e}")
