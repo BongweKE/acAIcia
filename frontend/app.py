@@ -79,7 +79,7 @@ async def start():
 </svg>
 <div class="acaicia-title-container">
 <h1 class="acaicia-title">acAIcia</h1>
-<p class="acaicia-subtitle">Landscape Alliance Expert Research Assistant</p>
+<p class="acaicia-subtitle">An AI research assistant from the Landscape Alliance powered by CIFOR & ICRAF</p>
 </div>
 </div>
 </div>"""

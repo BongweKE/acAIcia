@@ -1,6 +1,6 @@
 # Welcome to acAIcia 🌳
 
-**acAIcia** is the Landscape Alliance Expert Research Assistant. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.
+**acAIcia** is An AI research assistant from the Landscape Alliance powered by CIFOR & ICRAF. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.
 
 ### How to use:
 1. **Ask a question:** Type your query related to forestry, agroforestry, climate change, or biodiversity in the input box below.
