@@ -120,3 +120,31 @@ python cli_admin.py
 .venv/bin/modal deploy frontend/modal_app.py
 ```
 Upon successful deployment, Modal will output the public URL (e.g. `https://<username>--acaicia-frontend-run.modal.run`). The app will scale dynamically from zero and support native WebSockets for responsive chat streaming.
+
+### C. Deploy to Railway.com (Alternative Frontend)
+
+For testing or production hosting, you can deploy the frontend directly to [Railway.com](https://railway.com/) while keeping the Modal frontend running concurrently. Both frontends will communicate with the same FastAPI backend deployed on Modal.
+
+#### Step-by-Step Railway Deployment Guide:
+
+1. **Connect GitHub Repository**:
+   - Log into your [Railway account](https://railway.com/) and click **New Project**.
+   - Select **Deploy from GitHub repo** and select your `acAIcia` repository.
+
+2. **Add Environment Variables**:
+   - In your Railway project, select the newly added service and go to the **Variables** tab.
+   - Click **Add Variable** and enter:
+     - **Key**: `BACKEND_URL`
+     - **Value**: The URL of your deployed Modal FastAPI backend router (e.g., `https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run/query`).
+   - Adding this variable ensures the Railway container connects to the correct backend, though it will fallback to the default hardcoded URL in [frontend/app.py](frontend/app.py) if omitted.
+
+3. **Automatic Build & Deploy**:
+   - Railway automatically detects the [railway.json](railway.json) configuration at the root of the project.
+   - This configuration instructs Railway to use the [Dockerfile](Dockerfile) builder rather than default auto-detection (Railpack/Nixpacks), bypassing any "No start command detected" or root-directory mismatch errors.
+   - The build process will package the lightweight `frontend` directory, install required packages (`chainlit` and `requests`), and expose the app.
+   - Railway dynamically assigns a port via the `PORT` environment variable, which the container is configured to bind to.
+
+4. **Verify Live App**:
+   - Once the build succeeds, Railway generates a public URL (e.g., `https://your-app-name.up.railway.app`).
+   - You can test this URL alongside the existing Modal frontend URL; both remain active concurrently.
+
