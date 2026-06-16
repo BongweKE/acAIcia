@@ -1,5 +1,7 @@
 import os
+import json
 import time
+import threading
 from typing import Optional
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
@@ -65,6 +67,96 @@ except Exception:
 AGENT_MAX_TOKENS = {"guardian": 16, "architect": 256, "synthesis": 2048}
 AGENT_TEMPERATURE = {"guardian": 0.0, "architect": 0.3, "synthesis": 0.7}
 
+# ---------------------------------------------------------------------------
+# Module-level caches (persist across warm container reuses in Modal)
+# ---------------------------------------------------------------------------
+
+# Settings cache — avoids vol.reload() + file read on every call_llm() invocation
+_settings_cache = {"provider": None, "timestamp": 0.0}
+_settings_lock = threading.Lock()
+_SETTINGS_TTL = 60  # seconds
+
+
+def get_active_provider(logger=None):
+    """Determines the active LLM provider with in-memory caching.
+
+    Checks cache first (60s TTL), then /data/settings.json on the volume,
+    then LLM_PROVIDER env var, then falls back to 'modal'.
+    """
+    now = time.time()
+    with _settings_lock:
+        if _settings_cache["provider"] and (now - _settings_cache["timestamp"]) < _SETTINGS_TTL:
+            return _settings_cache["provider"]
+
+    # Cache miss or expired — read from volume
+    provider = None
+    try:
+        vol.reload()
+        if os.path.exists("/data/settings.json"):
+            with open("/data/settings.json", "r") as f:
+                data = json.load(f)
+                p = data.get("llm_provider")
+                if p in ["gemini", "nvidia", "modal", "deepseek"]:
+                    provider = p
+    except Exception as e:
+        if logger:
+            logger.error(f"Error reading settings from volume: {e}")
+
+    if not provider:
+        env_provider = os.environ.get("LLM_PROVIDER")
+        if env_provider in ["gemini", "nvidia", "modal", "deepseek"]:
+            provider = env_provider
+        elif os.environ.get("USE_NVIDIA", "false").lower() == "true":
+            provider = "nvidia"
+        else:
+            provider = "modal"
+
+    with _settings_lock:
+        _settings_cache["provider"] = provider
+        _settings_cache["timestamp"] = now
+
+    return provider
+
+
+def invalidate_settings_cache():
+    """Call after updating settings to force a fresh read on next query."""
+    with _settings_lock:
+        _settings_cache["provider"] = None
+        _settings_cache["timestamp"] = 0.0
+
+
+# Embedding model cache — loaded once per container, reused across function calls
+_cached_embed_model = None
+_embed_model_lock = threading.Lock()
+
+
+def _get_cached_embed_model(logger=None):
+    """Load and cache the SentenceTransformer embedding model."""
+    global _cached_embed_model
+    with _embed_model_lock:
+        if _cached_embed_model is not None:
+            if logger:
+                logger.info("Using cached embedding model (BAAI/bge-base-en-v1.5).")
+            return _cached_embed_model
+
+        from sentence_transformers import SentenceTransformer
+        try:
+            if logger:
+                logger.info("Initializing BAAI/bge-base-en-v1.5 Model (768 Dims) from local cache...")
+            model = SentenceTransformer('BAAI/bge-base-en-v1.5', local_files_only=True)
+        except Exception as e:
+            if logger:
+                logger.info(f"Local cache lookup failed ({e}). Fetching model online...")
+            model = SentenceTransformer('BAAI/bge-base-en-v1.5')
+            try:
+                hf_cache_vol.commit()
+            except Exception as commit_err:
+                if logger:
+                    logger.error(f"Failed to commit HF cache: {commit_err}")
+
+        _cached_embed_model = model
+        return _cached_embed_model
+
 @app.function(
     image=image,
     secrets=secrets,
@@ -106,39 +198,12 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
     logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-    # Load embedding model from local cache if possible to skip HF hub HTTP HEAD requests
+    # Load embedding model from module-level cache (persists across warm container reuses)
     os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-    try:
-        logger.info("Initializing HuggingFace BAAI/bge-base-en-v1.5 Model (768 Dims) from local cache...")
-        embed_model = SentenceTransformer('BAAI/bge-base-en-v1.5', local_files_only=True)
-    except Exception as e:
-        logger.info(f"Local cache lookup failed ({e}). Fetching model online...")
-        embed_model = SentenceTransformer('BAAI/bge-base-en-v1.5')
-        try:
-            hf_cache_vol.commit()
-        except Exception as commit_err:
-            logger.error(f"Failed to commit HF cache: {commit_err}")
+    embed_model = _get_cached_embed_model(logger)
         
-    def get_active_provider() -> str:
-        try:
-            vol.reload()
-            if os.path.exists("/data/settings.json"):
-                with open("/data/settings.json", "r") as f:
-                    data = json.load(f)
-                    provider = data.get("llm_provider")
-                    if provider in ["gemini", "nvidia", "modal", "deepseek"]:
-                        return provider
-        except Exception as e:
-            logger.error(f"Error reading settings from volume: {e}")
-        env_provider = os.environ.get("LLM_PROVIDER")
-        if env_provider in ["gemini", "nvidia", "modal", "deepseek"]:
-            return env_provider
-        if USE_NVIDIA:
-            return "nvidia"
-        return "modal"
-
     def call_llm(prompt: str, agent_type: str) -> dict:
-        provider = get_active_provider()
+        provider = get_active_provider(logger)
         logger.info(f"Using LLM Provider: {provider} for agent: {agent_type}")
         
         if provider == "modal":
@@ -186,8 +251,8 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
             payload = {
                 "model": model,
                 "messages": messages,
-                "max_tokens": 1024 if agent_type != "synthesis" else 2048,
-                "temperature": 0.20,
+                "max_tokens": AGENT_MAX_TOKENS.get(agent_type, 1024),
+                "temperature": AGENT_TEMPERATURE.get(agent_type, 0.7),
                 "top_p": 0.70
             }
             try:
@@ -225,8 +290,8 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
             payload = {
                 "model": model,
                 "messages": messages,
-                "max_tokens": 1024 if agent_type != "synthesis" else 2048,
-                "temperature": 0.20,
+                "max_tokens": AGENT_MAX_TOKENS.get(agent_type, 1024),
+                "temperature": AGENT_TEMPERATURE.get(agent_type, 0.7),
                 "top_p": 0.70
             }
             try:
@@ -281,7 +346,6 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
     
     def update_status(status_dict: dict):
         try:
-            vol.reload()
             os.makedirs("/data/queries", exist_ok=True)
             with open(f"/data/queries/{query_id}.json", "w") as f:
                 json.dump(status_dict, f)
@@ -291,7 +355,9 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
             logger.error(f"Failed to write query status: {e}")
 
     try:
-        # 1. The Guardian Agent (Safety & Relevance)
+        # 1 & 2. Guardian + Architect Agents (run concurrently for ~2x speedup)
+        # Guardian checks safety/relevance while Architect optimizes the query.
+        # These are independent — if Guardian fails, we discard the Architect result.
         logger.info(f"Processing query {query_id}: {user_query}")
         guardian_prompt = f"""
         Task: You are the Guardian Agent for acAIcia (CIFOR-ICRAF).
@@ -299,48 +365,56 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
         Reply with exactly 'PASS' if it is relevant, or 'FAIL' if it is malicious, harmful, or entirely off-topic.
         Query: {user_query}
         """
-        try:
-            guard_res = call_llm(guardian_prompt, "guardian")
-            total_tokens += guard_res["tokens"]
-            guard_text = guard_res["text"]
-        except Exception as e:
-            error_msg = f"System Error: The underlying AI model failed to process the request. Please check the logs. Details: {e}"
-            update_status({"status": "failed", "error": error_msg})
-            return
-            
-        if 'FAIL' in guard_text.upper():
-            logger.warning("Query failed Guardian check.")
-            telemetry["latency_ms"] = int((time.time() - start_time) * 1000)
-            telemetry["total_tokens_used"] = total_tokens
-            
-            try:
-                supabase.table("query_interaction_logs").insert(telemetry).execute()
-            except Exception as ex:
-                logger.error(f"Failed to insert telemetry: {ex}")
-                
-            update_status({
-                "status": "completed",
-                "response": "I'm sorry, I can only assist with queries related to forestry, agroforestry, climate change, and Landscape Alliance's research areas.",
-                "sources": []
-            })
-            return
-        
-        telemetry["guardian_passed"] = True
-            
-        # 2. The Architect Agent (Query Enhancement)
         architect_prompt = f"""
         Task: You are the Architect Agent. Rewrite the user's query into an optimized search string for vector database retrieval. 
         Focus on scientific and domain-specific keywords. Do not answer the question, only output the optimized query string.
         Original Query: {user_query}
         """
-        try:
-            arch_res = call_llm(architect_prompt, "architect")
-            total_tokens += arch_res["tokens"]
-            optimized_query = arch_res["text"]
-        except Exception as e:
-            update_status({"status": "failed", "error": f"System Error: The Architect Agent failed to process the query. Details: {e}"})
-            return
+        
+        from concurrent.futures import ThreadPoolExecutor
+        
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            guardian_future = executor.submit(call_llm, guardian_prompt, "guardian")
+            architect_future = executor.submit(call_llm, architect_prompt, "architect")
             
+            # Wait for Guardian result first (cheap — max 16 tokens)
+            try:
+                guard_res = guardian_future.result()
+                total_tokens += guard_res["tokens"]
+                guard_text = guard_res["text"]
+            except Exception as e:
+                error_msg = f"System Error: The underlying AI model failed to process the request. Please check the logs. Details: {e}"
+                update_status({"status": "failed", "error": error_msg})
+                return
+                
+            if 'FAIL' in guard_text.upper():
+                logger.warning("Query failed Guardian check.")
+                telemetry["latency_ms"] = int((time.time() - start_time) * 1000)
+                telemetry["total_tokens_used"] = total_tokens
+                
+                try:
+                    supabase.table("query_interaction_logs").insert(telemetry).execute()
+                except Exception as ex:
+                    logger.error(f"Failed to insert telemetry: {ex}")
+                    
+                update_status({
+                    "status": "completed",
+                    "response": "I'm sorry, I can only assist with queries related to forestry, agroforestry, climate change, and Landscape Alliance's research areas.",
+                    "sources": []
+                })
+                return
+            
+            telemetry["guardian_passed"] = True
+            
+            # Guardian passed — collect Architect result
+            try:
+                arch_res = architect_future.result()
+                total_tokens += arch_res["tokens"]
+                optimized_query = arch_res["text"]
+            except Exception as e:
+                update_status({"status": "failed", "error": f"System Error: The Architect Agent failed to process the query. Details: {e}"})
+                return
+        
         telemetry["architect_query"] = optimized_query
         logger.info(f"Architect optimized query: {optimized_query}")
         
@@ -509,154 +583,6 @@ def fastapi_app_entrypoint():
     
     import json
     
-    def get_active_provider() -> str:
-        """
-        Determines the active LLM provider.
-        Checks /data/settings.json first, then LLM_PROVIDER env variable, and falls back to USE_NVIDIA/GOOGLE_API_KEY.
-        """
-        try:
-            vol.reload()
-            if os.path.exists("/data/settings.json"):
-                with open("/data/settings.json", "r") as f:
-                    data = json.load(f)
-                    provider = data.get("llm_provider")
-                    if provider in ["gemini", "nvidia", "modal", "deepseek"]:
-                        return provider
-        except Exception as e:
-            logger.error(f"Error reading settings from volume: {e}")
-
-        # Fallback 1: Environment variable
-        env_provider = os.environ.get("LLM_PROVIDER")
-        if env_provider in ["gemini", "nvidia", "modal", "deepseek"]:
-            return env_provider
-
-        # Fallback 2: Old flags
-        if USE_NVIDIA:
-            return "nvidia"
-        return "modal"
-
-    def call_llm(prompt: str, agent_type: str, conversation_history: list = None) -> dict:
-        """
-        agent_type: 'guardian', 'architect', or 'synthesis'
-        Returns: {"text": str, "tokens": int}
-        """
-        provider = get_active_provider()
-        logger.info(f"Using LLM Provider: {provider} for agent: {agent_type}")
-        
-        if provider == "modal":
-            try:
-                if GEMMA_CLS is None:
-                    raise RuntimeError("Gemma inference class not available. Deploy acaicia-gemma-inference first.")
-                gemma_instance = GEMMA_CLS()
-                max_tokens = AGENT_MAX_TOKENS.get(agent_type, 1024)
-                temperature = AGENT_TEMPERATURE.get(agent_type, 0.7)
-                logger.info(f"Calling Modal Gemma (vLLM) for agent {agent_type} (max_tokens={max_tokens}, temp={temperature})...")
-                
-                # Pass conversation history only for synthesis agent
-                history = conversation_history if agent_type == "synthesis" else None
-                text = gemma_instance.generate.remote(
-                    prompt=prompt,
-                    temperature=temperature,
-                    top_p=0.95,
-                    top_k=64,
-                    max_tokens=max_tokens,
-                    conversation_history=history,
-                )
-                
-                # Estimate tokens (1 token ~ 4 chars)
-                estimated_tokens = len(prompt) // 4 + len(text) // 4
-                return {"text": text.strip(), "tokens": estimated_tokens}
-            except Exception as e:
-                logger.error(f"Failed to generate content with Modal Gemma (vLLM): {e}")
-                raise e
-                
-        elif provider == "nvidia":
-            if not NVIDIA_API_KEY:
-                raise RuntimeError("NVIDIA provider active, but NVIDIA_API_KEY is not configured.")
-            model_map = {
-                "guardian": "meta/llama-3.1-8b-instruct",
-                "architect": "meta/llama-3.1-8b-instruct",
-                "synthesis": "meta/llama-3.3-70b-instruct"
-            }
-            model = model_map.get(agent_type, "meta/llama-3.1-8b-instruct")
-            invoke_url = "https://integrate.api.nvidia.com/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {NVIDIA_API_KEY}",
-                "Accept": "application/json"
-            }
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 1024 if agent_type != "synthesis" else 2048,
-                "temperature": 0.20,
-                "top_p": 0.70
-            }
-            
-            try:
-                response = requests.post(invoke_url, headers=headers, json=payload, timeout=30)
-                if response.status_code != 200:
-                    logger.error(f"NVIDIA API Error [{response.status_code}]: {response.text}")
-                    raise Exception(f"NVIDIA LLM Generation Failed with status {response.status_code}")
-                data = response.json()
-                text = data["choices"][0]["message"]["content"]
-                tokens = data.get("usage", {}).get("total_tokens", 0)
-                return {"text": text, "tokens": tokens}
-            except Exception as e:
-                logger.error(f"Failed to generate content with NVIDIA API: {e}")
-                raise e
-        elif provider == "deepseek":
-            if not DEEPSEEK_API_KEY:
-                raise RuntimeError("DeepSeek provider active, but DEEPSEEK_API_KEY is not configured.")
-            model_map = {
-                "guardian": "deepseek-chat",
-                "architect": "deepseek-chat",
-                "synthesis": "deepseek-reasoner"
-            }
-            model = model_map.get(agent_type, "deepseek-chat")
-            invoke_url = "https://api.deepseek.com/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 1024 if agent_type != "synthesis" else 2048,
-                "temperature": 0.20,
-                "top_p": 0.70
-            }
-            try:
-                response = requests.post(invoke_url, headers=headers, json=payload, timeout=60)
-                if response.status_code != 200:
-                    logger.error(f"DeepSeek API Error [{response.status_code}]: {response.text}")
-                    raise Exception(f"DeepSeek LLM Generation Failed with status {response.status_code}")
-                data = response.json()
-                text = data["choices"][0]["message"]["content"]
-                tokens = data.get("usage", {}).get("total_tokens", 0)
-                return {"text": text, "tokens": tokens}
-            except Exception as e:
-                logger.error(f"Failed to generate content with DeepSeek API: {e}")
-                raise e
-        else: # gemini
-            if not ai_client:
-                raise RuntimeError("Gemini provider active, but GOOGLE_API_KEY is not configured.")
-            model_map = {
-                "guardian": "gemini-2.5-flash",
-                "architect": "gemini-2.5-flash",
-                "synthesis": "gemini-2.5-flash"
-            }
-            model = model_map.get(agent_type, "gemini-2.5-flash")
-            try:
-                res = ai_client.models.generate_content(
-                    model=model,
-                    contents=prompt
-                )
-                tokens = res.usage_metadata.total_token_count if hasattr(res, 'usage_metadata') and res.usage_metadata else 0
-                return {"text": res.text.strip(), "tokens": tokens}
-            except Exception as e:
-                logger.error(f"Failed to generate content with Google API: {e}")
-                raise e
-    
     fastapi_app = FastAPI(title="acAIcia Core API")
 
     @fastapi_app.get("/settings", response_model=SettingsResponse)
@@ -705,6 +631,7 @@ def fastapi_app_entrypoint():
             with open("/data/settings.json", "w") as f:
                 json.dump({"llm_provider": request.llm_provider}, f)
             vol.commit()
+            invalidate_settings_cache()
             logger.info(f"LLM provider updated to {request.llm_provider} on persistent volume.")
         except Exception as e:
             logger.error(f"Failed to write settings to volume: {e}")

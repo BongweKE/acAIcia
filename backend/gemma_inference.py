@@ -13,7 +13,7 @@ which provides:
 Performance Notes:
   - Expected 5-15x speedup over HuggingFace pipeline for text generation
   - L4 GPU (Ada Lovelace) is the sweet spot for cost vs performance on 2B models
-  - scaledown_window=300 keeps GPU warm for 5 minutes between requests
+  - scaledown_window=600 keeps GPU warm for 10 minutes between requests
 
 Model Configuration:
   - Primary model: google/gemma-4-E2B-it (Effective 2B params, multimodal)
@@ -47,10 +47,8 @@ image = (
         "transformers",
     )
     .env({
-        "HF_HUB_ENABLE_HF_TRANSFER": "1",
+        "HF_XET_HIGH_PERFORMANCE": "1",
         "VLLM_USE_FLASHINFER_SAMPLER": "0",
-        "VLLM_DISABLE_FLASHINFER": "1",
-        "VLLM_USE_V1": "0",
         "TRITON_CACHE_DIR": "/root/.cache/huggingface/triton",
     })
 )
@@ -70,7 +68,7 @@ FALLBACK_MODEL = "google/gemma-3-4b-it"
     secrets=secrets,
     volumes={"/root/.cache/huggingface": hf_cache_vol},
     timeout=900,
-    scaledown_window=300,           # Keep GPU warm for 5 minutes
+    scaledown_window=600,           # Keep GPU warm for 10 minutes
 )
 @modal.concurrent(max_inputs=50)    # Enable vLLM continuous batching
 class GemmaModel:
@@ -89,6 +87,7 @@ class GemmaModel:
         secondary model if the primary fails (e.g., gating issues, OOM).
         """
         from vllm import AsyncEngineArgs, AsyncLLMEngine
+        import asyncio
 
         hf_token = os.environ.get("HF_TOKEN")
         if not hf_token:
@@ -208,13 +207,26 @@ class GemmaModel:
             else:
                 break
 
-        # Generate with vLLM's async engine
+        # Generate with vLLM's async engine using token IDs to avoid
+        # the deprecated raw-prompt path (InputProcessor deprecation warning)
         request_id = str(uuid.uuid4())
+        try:
+            prompt_token_ids = self._tokenizer.encode(formatted_prompt)
+        except Exception:
+            prompt_token_ids = None
+
         final_output = None
-        async for output in self._engine.generate(
-            formatted_prompt, sampling, request_id
-        ):
-            final_output = output
+        if prompt_token_ids is not None:
+            async for output in self._engine.generate(
+                {"prompt_token_ids": prompt_token_ids}, sampling, request_id
+            ):
+                final_output = output
+        else:
+            # Fallback: pass raw text if tokenization failed
+            async for output in self._engine.generate(
+                formatted_prompt, sampling, request_id
+            ):
+                final_output = output
 
         if final_output is None or not final_output.outputs:
             return ""
@@ -233,20 +245,31 @@ class GemmaModel:
         }
 
     @modal.exit()
-    def cleanup(self):
+    async def cleanup(self):
         """Clean up resources on container shutdown.
 
-        Shuts down the vLLM engine background loop and commits the
-        cache volume to persist weights and Triton JIT compilation artifacts.
+        Gracefully shuts down the vLLM engine and commits the cache volume
+        to persist weights and Triton JIT compilation artifacts.
         """
-        # 1. Gracefully shut down the vLLM engine background loop
+        import asyncio
+
+        # 1. Gracefully shut down the vLLM engine
         if hasattr(self, "_engine") and self._engine is not None:
             try:
-                print("Shutting down vLLM engine background loop...")
-                self._engine.shutdown_background_loop()
-                print("vLLM engine shut down successfully.")
+                print("Shutting down vLLM engine...")
+                # vLLM v0.21+ (AsyncLLM) uses shutdown() instead of
+                # the removed shutdown_background_loop()
+                if hasattr(self._engine, "shutdown"):
+                    shutdown_coro = self._engine.shutdown()
+                    if asyncio.iscoroutine(shutdown_coro):
+                        await shutdown_coro
+                    print("vLLM engine shut down successfully.")
+                else:
+                    print("No shutdown method found on engine; skipping (non-fatal).")
             except Exception as e:
-                print(f"Failed to shut down vLLM background loop (non-fatal): {e}")
+                print(f"Failed to shut down vLLM engine (non-fatal): {e}")
+            finally:
+                self._engine = None
 
         # 2. Commit the cache volume to persist weights and Triton cache
         try:

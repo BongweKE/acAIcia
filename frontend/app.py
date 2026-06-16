@@ -21,17 +21,22 @@ FRONTEND_DIR = Path(__file__).parent
 # To customize: add, remove, or modify entries in this list.
 # A random phrase is selected on each query and refreshed every ~8 seconds.
 THINKING_PHRASES = [
-    "Thinking...",
-    "Researching...",
-    "Analyzing...",
-    "Consulting the knowledge base...",
-    "Synthesizing findings...",
-    "Reviewing literature...",
-    "Cross-referencing sources...",
-    "Formulating response...",
-    "Exploring the evidence...",
-    "Processing your query...",
+    "Searching the knowledge base for relevant publications…",
+    "Retrieving scientific evidence from our research archive…",
+    "Analyzing your query against thousands of publications…",
+    "Cross-referencing sources across forestry and climate literature…",
+    "Synthesizing findings from multiple research papers…",
+    "Consulting peer-reviewed publications on this topic…",
+    "Evaluating relevance of retrieved documents…",
+    "Building a comprehensive answer with proper citations…",
+    "Reviewing biodiversity and ecosystem research…",
+    "Processing through the multi-agent research pipeline…",
+    "Matching your question to our agroforestry knowledge base…",
+    "Extracting key insights from scientific literature…",
+    "Formulating a well-cited response for you…",
+    "Scanning landscape restoration and conservation studies…",
 ]
+
 
 @cl.on_chat_start
 async def start():
@@ -202,14 +207,28 @@ Failed to connect to the backend server:
     answer = None
     sources = []
     error_message = None
-    
+
+    # Send a visual thinking indicator message that will be removed when done
+    phrase = random.choice(THINKING_PHRASES)
+    thinking_html = f"""<div class="acaicia-thinking-inline">
+<div class="acaicia-thinking-dots"><span></span><span></span><span></span></div>
+<span class="acaicia-thinking-msg">🌿 {phrase}</span>
+</div>"""
+    thinking_msg = cl.Message(content=thinking_html, author="acAIcia")
+    await thinking_msg.send()
+
     try:
         async with cl.Step(name="acAIcia Multi-Agent Pipeline", type="run") as step:
-            phrase = random.choice(THINKING_PHRASES)
             for poll_idx in range(max_polls):
                 # Refresh the thinking phrase every ~8 seconds (4 polls)
                 if poll_idx % 4 == 0 and poll_idx > 0:
                     phrase = random.choice(THINKING_PHRASES)
+                    thinking_html = f"""<div class="acaicia-thinking-inline">
+<div class="acaicia-thinking-dots"><span></span><span></span><span></span></div>
+<span class="acaicia-thinking-msg">🌿 {phrase}</span>
+</div>"""
+                    thinking_msg.content = thinking_html
+                    await thinking_msg.update()
                 
                 step.output = f"🌿 {phrase}"
                 await step.update()
@@ -233,9 +252,16 @@ Failed to connect to the backend server:
                         step.output = f"Pipeline execution failed: {poll_err}"
                         raise poll_err
                 
+
                 await asyncio.sleep(poll_interval)
     except Exception as e:
         error_message = str(e)
+
+    # Remove the thinking indicator message now that processing is done
+    try:
+        await cl.Message(id=thinking_msg.id, content="").remove()
+    except Exception:
+        pass  # Already removed or not found
 
     if error_message:
         if any(w in error_message.lower() for w in ["context length", "token size", "maximum context", "too many tokens"]):

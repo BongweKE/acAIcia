@@ -128,14 +128,19 @@ def process_documents():
             res = supabase.table("documents_catalog").insert(doc_data).execute()
             doc_id = res.data[0]['id']
             
-            # Insert chunks payload sequentially
-            for i, chunk in enumerate(chunks):
-                chunk_data = {
+            # Insert chunks in batches for efficiency (reduces HTTP round-trips)
+            BATCH_SIZE = 50
+            chunk_records = [
+                {
                     "document_id": doc_id,
                     "chunk_text": chunk,
                     "embedding": embeddings[i].tolist()
                 }
-                supabase.table("document_embeddings").insert(chunk_data).execute()
+                for i, chunk in enumerate(chunks)
+            ]
+            for batch_start in range(0, len(chunk_records), BATCH_SIZE):
+                batch = chunk_records[batch_start:batch_start + BATCH_SIZE]
+                supabase.table("document_embeddings").insert(batch).execute()
                 
             # Document logs update
             supabase.table("ingestion_logs").insert({
