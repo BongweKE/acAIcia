@@ -87,8 +87,12 @@
 
   if (document.body) {
     startObserving();
+    startScrollObserver();
   } else {
-    document.addEventListener('DOMContentLoaded', startObserving);
+    document.addEventListener('DOMContentLoaded', () => {
+      startObserving();
+      startScrollObserver();
+    });
   }
 
   // Safety fallback: if somehow the welcome card never appears (e.g. error),
@@ -107,5 +111,49 @@
 
   // (The actual rotating text is handled server-side in app.py via
   //  THINKING_PHRASES + step.update(). This JS adds visual polish.)
+
+
+  // ── 3. AUTO-SCROLL TO TOP OF ANSWERS ────────────────────────────────────────
+  // When a new assistant response arrives, we scroll it so that the start of
+  // the answer is aligned with the top of the chat area, rather than the bottom.
+  function startScrollObserver() {
+    console.log("🌿 acAIcia: startScrollObserver active");
+    const scrollObserver = new MutationObserver(function (mutations) {
+      const aiMessages = document.querySelectorAll('.ai-message');
+      if (aiMessages.length === 0) return;
+
+      // Filter out welcome card, info card, and the inline thinking component
+      // Also ensure it contains .message-content (only real messages, not step runs)
+      const validAiMessages = Array.from(aiMessages).filter(el => {
+        const hasContent = !!el.querySelector('.message-content');
+        const isWelcome = !!el.querySelector('.acaicia-welcome-card');
+        const isInfo = !!el.querySelector('.acaicia-info-card');
+        const isThinking = !!el.querySelector('.acaicia-thinking-inline');
+        return hasContent && !isWelcome && !isInfo && !isThinking;
+      });
+
+      if (validAiMessages.length === 0) return;
+
+      const latestResponse = validAiMessages[validAiMessages.length - 1];
+      if (latestResponse.dataset.scrolled === 'true') return;
+
+      latestResponse.dataset.scrolled = 'true';
+      console.log("🌿 acAIcia: Scrolling to new message:", latestResponse.innerText.substring(0, 50));
+
+      const stepWrapper = latestResponse.closest('.step') || latestResponse;
+      setTimeout(() => {
+        stepWrapper.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start'
+        });
+        console.log("🌿 acAIcia: scrollIntoView executed");
+      }, 150);
+    });
+
+    scrollObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
 
 })();
