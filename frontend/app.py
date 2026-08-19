@@ -1,7 +1,9 @@
 import os
-# Set default CHAINLIT_AUTH_SECRET before importing Chainlit to prevent startup ValueError
+import secrets
+
+# Dynamically generate a secure random 32-byte hex JWT secret if not provided in environment
 if not os.environ.get("CHAINLIT_AUTH_SECRET"):
-    os.environ["CHAINLIT_AUTH_SECRET"] = "acaicia-jwt-secret-key-3f98a2b-c1e6-4613"
+    os.environ["CHAINLIT_AUTH_SECRET"] = secrets.token_hex(32)
 
 import asyncio
 import random

@@ -4,8 +4,7 @@ FROM python:3.11-slim
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    CHAINLIT_DISABLE_ORIGIN_CHECK=true \
-    CHAINLIT_AUTH_SECRET="acaicia-jwt-secret-key-3f98a2b-c1e6-4613"
+    CHAINLIT_DISABLE_ORIGIN_CHECK=true
 
 # Set working directory in container
 WORKDIR /app
