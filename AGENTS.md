@@ -102,7 +102,7 @@ The backend query engine (`backend/app.py`) executes an asynchronous 4-stage pip
 | `/user/settings` | `GET` | `?user_id=...` | User profile object |
 | `/user/settings` | `POST` | `UserProfileRequest` | `{ status: "success", profile }` |
 | `/feedback` | `POST` | `{ log_id, user_id, rating, correction_text }` | `{ status: "success" }` |
-| `/admin/metrics` | `GET` | None | `AdminMetricsResponse` (latencies, cache hits, evals) |
+| `/admin/metrics` | `GET` | None | `AdminMetricsResponse` (latencies, cache hits, evals, recent_feedback entries list) |
 
 ---
 
