@@ -229,35 +229,58 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
         except Exception as p_err:
             logger.warning(f"Could not load profile for user {user_id}: {p_err}")
 
-    # Check Semantic Cache (only for standalone single-turn queries to preserve session context)
+    # Check Semantic Cache using Python-side cosine similarity (avoids pgvector string corruption bugs)
+    # Only active for standalone single-turn queries to preserve multi-turn conversation context
+    CACHE_SIMILARITY_THRESHOLD = 0.97
+    query_embedding = None
     if not conversation_history:
         try:
-            query_embedding = embed_model.encode([user_query], convert_to_numpy=True)[0].tolist()
-            cache_res = supabase.rpc("match_semantic_cache", {
-                "query_embedding": query_embedding,
-                "match_threshold": 0.95
-            }).execute()
+            import numpy as np
+            query_embedding = embed_model.encode([user_query], convert_to_numpy=True)[0]
+            query_emb_norm = query_embedding / (np.linalg.norm(query_embedding) + 1e-10)
 
-            if cache_res.data and len(cache_res.data) > 0:
-                cached_item = cache_res.data[0]
-                logger.info(f"⚡ Semantic cache HIT for query: '{user_query}'")
+            # Fetch recent cache rows with stored_embedding_text (comma-separated floats)
+            cache_rows = supabase.table("semantic_cache").select(
+                "cache_id, query_text, response_text, sources, stored_embedding_text"
+            ).order("created_at", desc=True).limit(200).execute()
+
+            best_sim = -1.0
+            best_item = None
+            for row in (cache_rows.data or []):
+                emb_text = row.get("stored_embedding_text")
+                if not emb_text or not isinstance(emb_text, str):
+                    continue
+                try:
+                    stored_vec = np.fromstring(emb_text, sep=",", dtype=np.float32)
+                    if len(stored_vec) != len(query_emb_norm):
+                        continue
+                    stored_norm = stored_vec / (np.linalg.norm(stored_vec) + 1e-10)
+                    sim = float(np.dot(query_emb_norm, stored_norm))
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_item = row
+                except Exception:
+                    continue
+
+            if best_item is not None and best_sim >= CACHE_SIMILARITY_THRESHOLD:
+                logger.info(f"⚡ Semantic cache HIT (sim={best_sim:.4f}) for: '{user_query[:60]}' → matched: '{best_item.get('query_text','')[:60]}'")
                 telemetry["cache_hit"] = True
                 telemetry["guardian_passed"] = True
                 telemetry["synthesis_source"] = "semantic_cache"
                 telemetry["latency_ms"] = int((time.time() - start_time) * 1000)
-
                 try:
                     supabase.table("query_interaction_logs").insert(telemetry).execute()
                 except Exception as ex:
                     logger.error(f"Failed to log cache hit telemetry: {ex}")
-
                 update_status({
                     "status": "completed",
-                    "response": cached_item.get("response_text"),
-                    "sources": cached_item.get("sources", []),
+                    "response": best_item.get("response_text"),
+                    "sources": best_item.get("sources", []),
                     "cache_hit": True
                 })
                 return
+            else:
+                logger.info(f"Cache MISS (best_sim={best_sim:.4f}, threshold={CACHE_SIMILARITY_THRESHOLD}) for: '{user_query[:60]}'")
         except Exception as cache_err:
             logger.warning(f"Semantic cache lookup exception: {cache_err}")
 
@@ -506,14 +529,22 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
 
         if results and synth_text:
             try:
-                raw_emb = embed_model.encode([user_query], convert_to_numpy=True)[0].tolist()
-                clean_emb = [float(x) for x in raw_emb]
+                import numpy as np
+                # Use already-computed embedding if available, else recompute
+                if query_embedding is not None:
+                    raw_emb = query_embedding
+                else:
+                    raw_emb = embed_model.encode([user_query], convert_to_numpy=True)[0]
+                # Store as comma-separated text string — avoids pgvector string corruption
+                emb_text = ",".join(f"{float(x):.8f}" for x in raw_emb)
                 supabase.table("semantic_cache").insert({
                     "query_text": user_query,
-                    "query_embedding": clean_emb,
+                    "query_embedding": [float(x) for x in raw_emb],  # keep for RPC compatibility
+                    "stored_embedding_text": emb_text,               # reliable Python-parseable
                     "response_text": synth_text.strip(),
                     "sources": sources
                 }).execute()
+                logger.info(f"✅ Cached response for: '{user_query[:60]}'")
             except Exception as cache_ins_err:
                 logger.warning(f"Failed to insert into semantic cache: {cache_ins_err}")
 
