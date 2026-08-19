@@ -229,36 +229,37 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
         except Exception as p_err:
             logger.warning(f"Could not load profile for user {user_id}: {p_err}")
 
-    # Check Semantic Cache
-    try:
-        query_embedding = embed_model.encode([user_query], convert_to_numpy=True)[0].tolist()
-        cache_res = supabase.rpc("match_semantic_cache", {
-            "query_embedding": query_embedding,
-            "match_threshold": 0.95
-        }).execute()
+    # Check Semantic Cache (only for standalone single-turn queries to preserve session context)
+    if not conversation_history:
+        try:
+            query_embedding = embed_model.encode([user_query], convert_to_numpy=True)[0].tolist()
+            cache_res = supabase.rpc("match_semantic_cache", {
+                "query_embedding": query_embedding,
+                "match_threshold": 0.95
+            }).execute()
 
-        if cache_res.data and len(cache_res.data) > 0:
-            cached_item = cache_res.data[0]
-            logger.info(f"⚡ Semantic cache HIT for query: '{user_query}'")
-            telemetry["cache_hit"] = True
-            telemetry["guardian_passed"] = True
-            telemetry["synthesis_source"] = "semantic_cache"
-            telemetry["latency_ms"] = int((time.time() - start_time) * 1000)
+            if cache_res.data and len(cache_res.data) > 0:
+                cached_item = cache_res.data[0]
+                logger.info(f"⚡ Semantic cache HIT for query: '{user_query}'")
+                telemetry["cache_hit"] = True
+                telemetry["guardian_passed"] = True
+                telemetry["synthesis_source"] = "semantic_cache"
+                telemetry["latency_ms"] = int((time.time() - start_time) * 1000)
 
-            try:
-                supabase.table("query_interaction_logs").insert(telemetry).execute()
-            except Exception as ex:
-                logger.error(f"Failed to log cache hit telemetry: {ex}")
+                try:
+                    supabase.table("query_interaction_logs").insert(telemetry).execute()
+                except Exception as ex:
+                    logger.error(f"Failed to log cache hit telemetry: {ex}")
 
-            update_status({
-                "status": "completed",
-                "response": cached_item.get("response_text"),
-                "sources": cached_item.get("sources", []),
-                "cache_hit": True
-            })
-            return
-    except Exception as cache_err:
-        logger.warning(f"Semantic cache lookup exception: {cache_err}")
+                update_status({
+                    "status": "completed",
+                    "response": cached_item.get("response_text"),
+                    "sources": cached_item.get("sources", []),
+                    "cache_hit": True
+                })
+                return
+        except Exception as cache_err:
+            logger.warning(f"Semantic cache lookup exception: {cache_err}")
 
     def call_llm(prompt: str, agent_type: str) -> dict:
         provider = get_active_provider(logger)
@@ -617,6 +618,7 @@ def fastapi_app_entrypoint():
         raise RuntimeError("Missing necessary environment variables for Supabase.")
 
     from fastapi.middleware.cors import CORSMiddleware
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     fastapi_app = FastAPI(title="acAIcia Core API")
 
     fastapi_app.add_middleware(

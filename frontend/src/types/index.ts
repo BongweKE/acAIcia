@@ -117,3 +117,11 @@ export interface ChatMessage {
   status?: 'processing' | 'completed' | 'failed';
   cacheHit?: boolean;
 }
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+}

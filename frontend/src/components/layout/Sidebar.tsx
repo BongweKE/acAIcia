@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../context/ChatContext';
 import {
   MessageSquare,
+  Plus,
   Info,
   HelpCircle,
   BookOpen,
@@ -11,7 +12,7 @@ import {
   Trash2,
   X,
   Leaf,
-  Sparkles,
+  MessageCircle,
 } from 'lucide-react';
 
 export type NavTab = 'chat' | 'about' | 'faqs' | 'blogs' | 'contact' | 'admin';
@@ -32,7 +33,7 @@ interface NavItem {
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen, onCloseMobile }) => {
   const { role } = useAuth();
-  const { clearChat, messages } = useChat();
+  const { sessions, activeSessionId, createNewSession, switchSession, deleteSession, clearChat, messages } = useChat();
 
   const navItems: NavItem[] = [
     { id: 'chat', label: 'RAG Research Chat', icon: <MessageSquare className="w-4 h-4" /> },
@@ -45,6 +46,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
 
   const handleSelectTab = (tab: NavTab) => {
     setActiveTab(tab);
+    if (onCloseMobile) onCloseMobile();
+  };
+
+  const handleNewChat = () => {
+    createNewSession();
+    setActiveTab('chat');
     if (onCloseMobile) onCloseMobile();
   };
 
@@ -72,7 +79,66 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
             </button>
           </div>
 
-          <div className="space-y-1">
+          {/* New Chat Button */}
+          <div>
+            <button
+              onClick={handleNewChat}
+              className="w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-forest-950 font-bold text-xs rounded-xl transition-all shadow-glow flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Research Chat</span>
+            </button>
+          </div>
+
+          {/* Recent Sessions List */}
+          {activeTab === 'chat' && sessions.length > 0 && (
+            <div className="space-y-1.5 pt-2 border-t border-forest-800/80">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-3 flex items-center justify-between">
+                <span>Recent Chats</span>
+                <span className="text-[10px] text-emerald-400 font-mono">{sessions.length}</span>
+              </div>
+              <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                {sessions.map((s) => {
+                  const isActive = s.id === activeSessionId;
+                  return (
+                    <div
+                      key={s.id}
+                      className={`group flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-emerald-500/20 text-emerald-200 font-medium border border-emerald-500/30'
+                          : 'text-gray-400 hover:bg-forest-800/60 hover:text-gray-200 border border-transparent'
+                      }`}
+                      onClick={() => {
+                        switchSession(s.id);
+                        setActiveTab('chat');
+                        if (onCloseMobile) onCloseMobile();
+                      }}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <MessageCircle className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-emerald-400' : 'text-gray-500'}`} />
+                        <span className="truncate">{s.title}</span>
+                      </div>
+                      {sessions.length > 1 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteSession(s.id);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-rose-400 transition-opacity"
+                          title="Delete session"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Workspace Views */}
+          <div className="space-y-1 pt-2 border-t border-forest-800/80">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-3 mb-2">
               Workspace Views
             </div>
@@ -97,18 +163,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpe
             })}
           </div>
 
-          {/* Quick Chat Actions */}
+          {/* Clear Current Chat */}
           {activeTab === 'chat' && messages.length > 1 && (
             <div className="pt-4 border-t border-forest-800 space-y-2">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-3">
-                Chat Management
-              </div>
               <button
                 onClick={clearChat}
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-rose-300 hover:text-rose-200 bg-rose-950/20 hover:bg-rose-900/30 border border-rose-800/30 rounded-xl transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Clear Message History</span>
+                <span>Reset Current Chat</span>
               </button>
             </div>
           )}

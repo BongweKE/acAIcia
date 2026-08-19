@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { ChatMessage, SourceChunk, QueryStatusResponse } from '../types';
+import { ChatMessage, SourceChunk, QueryStatusResponse, ChatSession } from '../types';
 import * as client from '../api/client';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
@@ -7,6 +7,8 @@ import { useToast } from './ToastContext';
 export type RAGStage = 'Guardian Check' | 'Query Architect' | 'Hybrid Retrieval' | 'Synthesis Engine' | null;
 
 interface ChatContextType {
+  sessions: ChatSession[];
+  activeSessionId: string;
   messages: ChatMessage[];
   pills: string[];
   fetchPills: () => Promise<void>;
@@ -18,6 +20,9 @@ interface ChatContextType {
   closeFeedbackModal: () => void;
   submitUserQuery: (queryText: string) => Promise<void>;
   submitFeedback: (logId: string, rating: 1 | -1, correctionText?: string) => Promise<void>;
+  createNewSession: () => void;
+  switchSession: (sessionId: string) => void;
+  deleteSession: (sessionId: string) => void;
   clearChat: () => void;
 }
 
@@ -36,13 +41,47 @@ const INITIAL_WELCOME_MESSAGE: ChatMessage = {
   status: 'completed',
 };
 
+const STORAGE_KEY = 'acaicia_chat_sessions_v1';
+
+const createDefaultSession = (): ChatSession => {
+  const id = `session_${Date.now()}`;
+  return {
+    id,
+    title: 'New Research Chat',
+    messages: [INITIAL_WELCOME_MESSAGE],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+};
+
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { role, guestQueryCount, decrementGuestQueryCount, user } = useAuth();
   const { addToast } = useToast();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_WELCOME_MESSAGE]);
+  const [sessions, setSessions] = useState<ChatSession[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (err) {
+      console.warn('Could not load chat sessions from localStorage:', err);
+    }
+    return [createDefaultSession()];
+  });
+
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
+    return sessions[0]?.id || `session_${Date.now()}`;
+  });
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
+  const messages = activeSession ? activeSession.messages : [INITIAL_WELCOME_MESSAGE];
+
   const [pills, setPills] = useState<string[]>(DEFAULT_PILLS);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [currentQueryId, setCurrentQueryId] = useState<string | null>(null);
@@ -50,6 +89,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeFeedbackMessage, setActiveFeedbackMessage] = useState<ChatMessage | null>(null);
 
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Persist sessions to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    } catch (err) {
+      console.warn('Could not save chat sessions to localStorage:', err);
+    }
+  }, [sessions]);
 
   // Auto-fetch prompt pills on mount
   const fetchPills = useCallback(async () => {
@@ -84,17 +132,53 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setActiveFeedbackMessage(null);
   }, []);
 
-  const clearChat = useCallback(() => {
-    setMessages([INITIAL_WELCOME_MESSAGE]);
+  const createNewSession = useCallback(() => {
+    const newSession = createDefaultSession();
+    setSessions((prev) => [newSession, ...prev]);
+    setActiveSessionId(newSession.id);
     setIsProcessing(false);
     setCurrentQueryId(null);
     setCurrentStage(null);
   }, []);
 
-  const pollQueryStatus = useCallback((queryId: string, assistantMsgId: string) => {
+  const switchSession = useCallback((sessionId: string) => {
+    setActiveSessionId(sessionId);
+    setIsProcessing(false);
+    setCurrentQueryId(null);
+    setCurrentStage(null);
+  }, []);
+
+  const deleteSession = useCallback((sessionId: string) => {
+    setSessions((prev) => {
+      const filtered = prev.filter((s) => s.id !== sessionId);
+      if (filtered.length === 0) {
+        const fresh = createDefaultSession();
+        setActiveSessionId(fresh.id);
+        return [fresh];
+      }
+      if (sessionId === activeSessionId) {
+        setActiveSessionId(filtered[0].id);
+      }
+      return filtered;
+    });
+  }, [activeSessionId]);
+
+  const clearChat = useCallback(() => {
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeSessionId
+          ? { ...s, messages: [INITIAL_WELCOME_MESSAGE], updatedAt: new Date().toISOString() }
+          : s
+      )
+    );
+    setIsProcessing(false);
+    setCurrentQueryId(null);
+    setCurrentStage(null);
+  }, [activeSessionId]);
+
+  const pollQueryStatus = useCallback((queryId: string, assistantMsgId: string, targetSessionId: string) => {
     let pollCount = 0;
 
-    // Helper to map polling ticks/stages to RAG stage indicators
     const updateStage = (tick: number, backendStage?: string) => {
       if (backendStage) {
         if (backendStage.toLowerCase().includes('guardian')) return 'Guardian Check';
@@ -125,18 +209,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (res.status === 'completed') {
           if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
 
-          setMessages((prev) =>
-            prev.map((msg) => {
-              if (msg.id === assistantMsgId) {
-                return {
-                  ...msg,
-                  content: res.response || 'Query completed with no text returned.',
-                  sources: res.sources || [],
-                  status: 'completed',
-                  cacheHit: res.cache_hit,
-                };
-              }
-              return msg;
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id !== targetSessionId) return s;
+              return {
+                ...s,
+                updatedAt: new Date().toISOString(),
+                messages: s.messages.map((msg) => {
+                  if (msg.id === assistantMsgId) {
+                    return {
+                      ...msg,
+                      content: res.response || 'Query completed with no text returned.',
+                      sources: res.sources || [],
+                      status: 'completed',
+                      cacheHit: res.cache_hit,
+                    };
+                  }
+                  return msg;
+                }),
+              };
             })
           );
 
@@ -147,16 +238,23 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
 
           const errorMsg = res.error || 'Failed to process query. Please try again.';
-          setMessages((prev) =>
-            prev.map((msg) => {
-              if (msg.id === assistantMsgId) {
-                return {
-                  ...msg,
-                  content: `❌ **Query Error**: ${errorMsg}`,
-                  status: 'failed',
-                };
-              }
-              return msg;
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id !== targetSessionId) return s;
+              return {
+                ...s,
+                updatedAt: new Date().toISOString(),
+                messages: s.messages.map((msg) => {
+                  if (msg.id === assistantMsgId) {
+                    return {
+                      ...msg,
+                      content: `❌ **Query Error**: ${errorMsg}`,
+                      status: 'failed',
+                    };
+                  }
+                  return msg;
+                }),
+              };
             })
           );
 
@@ -167,20 +265,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (err: any) {
         console.error('Error polling query status:', err);
-        // Do not fail immediately on network flake, retry up to 15s (15 ticks)
         if (pollCount >= 15) {
           if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
           const errorMsg = err.message || 'Network error while checking query status.';
-          setMessages((prev) =>
-            prev.map((msg) => {
-              if (msg.id === assistantMsgId) {
-                return {
-                  ...msg,
-                  content: `❌ **Communication Error**: ${errorMsg}`,
-                  status: 'failed',
-                };
-              }
-              return msg;
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id !== targetSessionId) return s;
+              return {
+                ...s,
+                messages: s.messages.map((msg) => {
+                  if (msg.id === assistantMsgId) {
+                    return {
+                      ...msg,
+                      content: `❌ **Communication Error**: ${errorMsg}`,
+                      status: 'failed',
+                    };
+                  }
+                  return msg;
+                }),
+              };
             })
           );
           addToast(errorMsg, 'error');
@@ -225,11 +328,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       queryId: undefined,
     };
 
-    setMessages((prev) => [...prev, userMessage, assistantMessage]);
+    const targetSessionId = activeSessionId;
+
+    // Update active session messages & title if needed
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== targetSessionId) return s;
+        const newTitle = s.title === 'New Research Chat' ? trimmed.slice(0, 32) + (trimmed.length > 32 ? '...' : '') : s.title;
+        return {
+          ...s,
+          title: newTitle,
+          updatedAt: new Date().toISOString(),
+          messages: [...s.messages, userMessage, assistantMessage],
+        };
+      })
+    );
+
     setIsProcessing(true);
     setCurrentStage('Guardian Check');
 
-    // Build history for backend
+    // Build history for backend using current active session messages
     const history = messages
       .filter((m) => m.status !== 'processing' && m.status !== 'failed' && m.id !== 'welcome-msg')
       .slice(-6)
@@ -239,39 +357,51 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await client.submitQuery({
         query: trimmed,
         user_id: user?.email || 'guest',
-        session_id: `session_${Date.now()}`,
+        session_id: targetSessionId,
         conversation_history: history,
       });
 
       const queryId = res.query_id;
       setCurrentQueryId(queryId);
 
-      setMessages((prev) =>
-        prev.map((msg) => (msg.id === assistantMsgId ? { ...msg, queryId } : msg))
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== targetSessionId) return s;
+          return {
+            ...s,
+            messages: s.messages.map((msg) => (msg.id === assistantMsgId ? { ...msg, queryId } : msg)),
+          };
+        })
       );
 
       // Start polling status every 1 second
-      pollQueryStatus(queryId, assistantMsgId);
+      pollQueryStatus(queryId, assistantMsgId, targetSessionId);
     } catch (err: any) {
       console.error('Failed to submit query:', err);
       const errorMsg = err.message || 'Failed to submit query to backend server.';
-      setMessages((prev) =>
-        prev.map((msg) => {
-          if (msg.id === assistantMsgId) {
-            return {
-              ...msg,
-              content: `❌ **Error**: ${errorMsg}`,
-              status: 'failed',
-            };
-          }
-          return msg;
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== targetSessionId) return s;
+          return {
+            ...s,
+            messages: s.messages.map((msg) => {
+              if (msg.id === assistantMsgId) {
+                return {
+                  ...msg,
+                  content: `❌ **Error**: ${errorMsg}`,
+                  status: 'failed',
+                };
+              }
+              return msg;
+            }),
+          };
         })
       );
       addToast(errorMsg, 'error');
       setIsProcessing(false);
       setCurrentStage(null);
     }
-  }, [role, guestQueryCount, decrementGuestQueryCount, addToast, user, messages, pollQueryStatus]);
+  }, [role, guestQueryCount, decrementGuestQueryCount, addToast, user, messages, activeSessionId, pollQueryStatus]);
 
   const submitFeedback = useCallback(async (logId: string, rating: 1 | -1, correctionText?: string) => {
     try {
@@ -293,6 +423,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <ChatContext.Provider
       value={{
+        sessions,
+        activeSessionId,
         messages,
         pills,
         fetchPills,
@@ -304,6 +436,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         closeFeedbackModal,
         submitUserQuery,
         submitFeedback,
+        createNewSession,
+        switchSession,
+        deleteSession,
         clearChat,
       }}
     >
