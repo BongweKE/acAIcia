@@ -3,6 +3,7 @@ import { AdminMetricsResponse } from '../../types';
 import { MetricCard } from './MetricCard';
 import { LatencyBreakdown } from './LatencyBreakdown';
 import { EvaluationTable } from './EvaluationTable';
+import { RecentFeedbackTable } from './RecentFeedbackTable';
 import {
   ShieldCheck,
   Activity,
@@ -130,6 +131,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {metrics.stage_latency_averages && (
         <LatencyBreakdown stageLatencies={metrics.stage_latency_averages} />
       )}
+
+      {/* Live Recent Feedback Table */}
+      <RecentFeedbackTable feedbackList={metrics.recent_feedback || []} />
 
       {/* Evaluation Benchmark Table */}
       <EvaluationTable evaluations={metrics.recent_evaluations || []} />

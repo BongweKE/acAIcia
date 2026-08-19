@@ -770,8 +770,9 @@ def fastapi_app_entrypoint():
             retrieval_avg = sum(l.get("retrieval_ms", 0) for l in logs if l.get("retrieval_ms")) / max(total_queries, 1)
             synthesis_avg = sum(l.get("synthesis_ms", 0) for l in logs if l.get("synthesis_ms")) / max(total_queries, 1)
 
-            fb_res = supabase.table("query_feedback").select("rating").execute()
-            ratings = [f.get("rating") for f in (fb_res.data or []) if f.get("rating")]
+            fb_res = supabase.table("query_feedback").select("feedback_id, rating, correction_text, created_at, user_id").order("created_at", desc=True).limit(20).execute()
+            fb_data = fb_res.data or []
+            ratings = [f.get("rating") for f in fb_data if f.get("rating")]
             upvotes = sum(1 for r in ratings if r == 1)
             downvotes = sum(1 for r in ratings if r == -1)
 
@@ -795,7 +796,8 @@ def fastapi_app_entrypoint():
                     "downvotes": downvotes,
                     "satisfaction_pct": round((upvotes / max(upvotes + downvotes, 1)) * 100, 1)
                 },
-                "recent_evaluations": eval_runs
+                "recent_evaluations": eval_runs,
+                "recent_feedback": fb_data
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))

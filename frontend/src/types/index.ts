@@ -67,6 +67,14 @@ export interface EvaluationRun {
   passed: boolean;
 }
 
+export interface FeedbackEntry {
+  feedback_id: string;
+  rating: number;
+  correction_text?: string;
+  created_at: string;
+  user_id?: string;
+}
+
 export interface AdminMetricsResponse {
   total_queries: number;
   cache_hit_rate_pct: number;
@@ -76,6 +84,7 @@ export interface AdminMetricsResponse {
   stage_latency_averages: StageLatencyAverages;
   user_feedback: UserFeedbackMetrics;
   recent_evaluations: EvaluationRun[];
+  recent_feedback?: FeedbackEntry[];
 }
 
 export interface QueryRequest {
