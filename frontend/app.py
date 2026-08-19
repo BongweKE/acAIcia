@@ -1,4 +1,8 @@
 import os
+# Set default CHAINLIT_AUTH_SECRET before importing Chainlit to prevent startup ValueError
+if not os.environ.get("CHAINLIT_AUTH_SECRET"):
+    os.environ["CHAINLIT_AUTH_SECRET"] = "acaicia-jwt-secret-key-3f98a2b-c1e6-4613"
+
 import asyncio
 import random
 import uuid
@@ -38,7 +42,6 @@ THINKING_PHRASES = [
 # Authentication Callback for Sign In / Sign Up
 @cl.password_auth_callback
 def auth_callback(username, password):
-    # Support guest login and authenticated user accounts
     if username and password:
         return cl.User(identifier=username, metadata={"role": "researcher", "provider": "supabase"})
     return None
@@ -268,7 +271,6 @@ async def main(message: cl.Message):
 <span class="acaicia-thinking-msg">🌿 {phrase}</span>
 </div>"""
     
-    # Create the primary message instance and send it
     response_msg = cl.Message(content=thinking_html, author="acAIcia")
     await response_msg.send()
 
@@ -336,7 +338,6 @@ async def main(message: cl.Message):
         citations_html += "</div>"
         response_content += citations_html
 
-    # Update response_msg directly in-place so UI renders answer smoothly!
     response_msg.content = response_content
     response_msg.actions = [
         cl.Action(name="upvote", value=query_id, label="👍 Useful"),
