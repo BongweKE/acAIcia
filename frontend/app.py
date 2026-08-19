@@ -165,7 +165,7 @@ async def setup_agent(settings):
 
 @cl.action_callback("upvote")
 async def on_upvote(action: cl.Action):
-    log_id = action.value
+    log_id = action.payload.get("value") if isinstance(action.payload, dict) else (action.value or "")
     user_id = cl.user_session.get("user_id")
     try:
         await asyncio.to_thread(requests.post, FEEDBACK_URL, json={"log_id": log_id, "user_id": user_id, "rating": 1}, timeout=5)
@@ -175,7 +175,7 @@ async def on_upvote(action: cl.Action):
 
 @cl.action_callback("downvote")
 async def on_downvote(action: cl.Action):
-    log_id = action.value
+    log_id = action.payload.get("value") if isinstance(action.payload, dict) else (action.value or "")
     user_id = cl.user_session.get("user_id")
     try:
         await asyncio.to_thread(requests.post, FEEDBACK_URL, json={"log_id": log_id, "user_id": user_id, "rating": -1}, timeout=5)
@@ -458,8 +458,8 @@ async def main(message: cl.Message):
 
     response_msg.content = response_content
     response_msg.actions = [
-        cl.Action(name="upvote", value=query_id, label="👍 Useful"),
-        cl.Action(name="downvote", value=query_id, label="👎 Needs Work")
+        cl.Action(name="upvote", value=query_id, payload={"value": query_id}, label="👍 Useful"),
+        cl.Action(name="downvote", value=query_id, payload={"value": query_id}, label="👎 Needs Work")
     ]
     await response_msg.update()
 
