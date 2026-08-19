@@ -42,21 +42,14 @@ THINKING_PHRASES = [
     "Scanning landscape restoration and conservation studies…",
 ]
 
-# Authentication Callback for Sign In / Sign Up
-@cl.password_auth_callback
-def auth_callback(username, password):
-    if username and password:
-        role = "admin" if username.lower() in ["b.obaga@landscapealliance.org", "admin"] else "researcher"
-        return cl.User(identifier=username, metadata={"role": role, "provider": "supabase"})
-    return None
-
 @cl.on_chat_start
 async def start():
-    user = cl.user_session.get("user")
-    is_authenticated = user is not None
-    user_identifier = user.identifier if user else "Guest Researcher"
+    session_user = cl.user_session.get("user")
+    is_authenticated = session_user is not None
+    user_identifier = session_user.get("email") if (isinstance(session_user, dict) and session_user.get("email")) else "Guest Researcher"
+    
     session_id = str(uuid.uuid4())
-    user_id = str(uuid.uuid4()) if not user else user.identifier
+    user_id = str(uuid.uuid4()) if not is_authenticated else user_identifier
     
     cl.user_session.set("session_id", session_id)
     cl.user_session.set("user_id", user_id)
@@ -254,12 +247,26 @@ async def main(message: cl.Message):
         await cl.Message(content=contact_html, author="acAIcia").send()
         return
 
-    # 5. Command: /login
+    # 5. Interactive Sign In / Register Command
+    if user_query.lower().startswith("/auth_login"):
+        parts = user_query.split()
+        if len(parts) >= 3:
+            email, pwd = parts[1], parts[2]
+            role = "admin" if email.lower() in ["b.obaga@landscapealliance.org", "admin@acaicia.org"] else "researcher"
+            cl.user_session.set("is_authenticated", True)
+            cl.user_session.set("user", {"email": email, "role": role})
+            cl.user_session.set("user_id", email)
+            await cl.Message(content=f"🎉 **Welcome back, {email}!** You are signed in as `{role}`. Unlimited queries unlocked.", author="acAIcia").send()
+        else:
+            await cl.Message(content="⚠️ Usage: `/auth_login [email] [password]`", author="acAIcia").send()
+        return
+
     if user_query.lower() in ["/login", "/register", "login", "sign in"]:
         auth_html = """<div class="acaicia-modal-card">
 <h2 class="acaicia-modal-title">🔐 Researcher Sign In / Registration</h2>
-<p>Sign in to unlock unlimited research queries, persistent multi-device conversation sync in Supabase, and custom research preferences.</p>
-<p style="color:#00e65c;">Click the <b>Sign In / Sign Up</b> link in the top right header to authenticate.</p>
+<p>Sign in to unlock unlimited research queries, persistent multi-device conversation sync, and custom research preferences.</p>
+<p>To sign in, type: <code>/auth_login [your_email] [your_password]</code></p>
+<p><i>Example: <code>/auth_login researcher@cifor-icraf.org mysecretpass</code></i></p>
 </div>"""
         await cl.Message(content=auth_html, author="acAIcia").send()
         return
@@ -298,8 +305,8 @@ async def main(message: cl.Message):
 
     # 7. Special Command: Admin Metrics Dashboard
     if user_query.lower() == "/admin":
-        user = cl.user_session.get("user")
-        is_admin = user and user.metadata.get("role") == "admin"
+        session_user = cl.user_session.get("user")
+        is_admin = isinstance(session_user, dict) and session_user.get("role") == "admin"
         if not is_admin:
             await cl.Message(content="🔒 **Access Restricted:** The `/admin` dashboard requires an authorized admin account (`b.obaga@landscapealliance.org`).", author="acAIcia").send()
             return
@@ -344,7 +351,7 @@ async def main(message: cl.Message):
 <h2 class="acaicia-modal-title" style="color:#ff4d4d;">🌿 Guest Query Limit Reached (20/20)</h2>
 <p>You have used all <b>20 free guest queries</b> in this browser session.</p>
 <p>Please <b>Sign In</b> or <b>Create a Free Account</b> to continue asking questions, save conversation history across devices, and set custom research preferences.</p>
-<p style="color:#00e65c;">Click <b>Sign In / Sign Up</b> in the header bar to continue.</p>
+<p style="color:#00e65c;">Type <code>/login</code> to sign in or register.</p>
 </div>"""
             await cl.Message(content=limit_html, author="acAIcia").send()
             return
