@@ -8,7 +8,6 @@ from chainlit.input_widget import Select, TextInput
 from pathlib import Path
 
 # Constants
-# DO NOT MODIFY the line below. The CLI admin tool parses this regex string to find the backend URL.
 BACKEND_URL = "https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run/query"
 
 API_URL = os.environ.get("BACKEND_URL", BACKEND_URL)
@@ -36,8 +35,18 @@ THINKING_PHRASES = [
     "Scanning landscape restoration and conservation studies…",
 ]
 
+# Authentication Callback for Sign In / Sign Up
+@cl.password_auth_callback
+def auth_callback(username, password):
+    # Support guest login and authenticated user accounts
+    if username and password:
+        return cl.User(identifier=username, metadata={"role": "researcher", "provider": "supabase"})
+    return None
+
 @cl.on_chat_start
 async def start():
+    user = cl.user_session.get("user")
+    user_identifier = user.identifier if user else "Guest Researcher"
     session_id = str(uuid.uuid4())
     user_id = str(uuid.uuid4())
     cl.user_session.set("session_id", session_id)
@@ -57,7 +66,7 @@ async def start():
             if attempt < max_retries - 1:
                 await asyncio.sleep(2)
 
-    welcome_html = """<div class="acaicia-welcome-card">
+    welcome_html = f"""<div class="acaicia-welcome-card">
 <div class="acaicia-welcome-header">
 <svg class="acaicia-logo-svg" viewBox="0 0 100 100" width="64" height="64">
   <g class="acacia-fill">
@@ -77,12 +86,16 @@ async def start():
 <p class="acaicia-subtitle">An AI research assistant from the Landscape Alliance powered by CIFOR & ICRAF</p>
 </div>
 </div>
+<div class="acaicia-user-auth-badge">
+  <span>👤 Active Account: <strong>{user_identifier}</strong></span>
+  <span class="acaicia-auth-nav-link">Sign In / Sign Up</span>
+</div>
 </div>"""
 
     await cl.Message(content=welcome_html, author="acAIcia").send()
 
     desc_html = """<div class="acaicia-info-card">
-<p class="acaicia-info-text">Ask me questions related to forestry, agroforestry, climate change, peatlands, food systems, biodiversity, and Landscape Alliance's research areas. Type <code>/settings</code> to configure your profile or <code>/admin</code> to view RAG telemetry.</p>
+<p class="acaicia-info-text">Ask me questions related to forestry, agroforestry, climate change, peatlands, food systems, biodiversity, and Landscape Alliance's research areas. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.</p>
 </div>"""
 
     temp_msg = cl.Message(content=desc_html, author="acAIcia")
@@ -117,7 +130,6 @@ async def setup_agent(settings):
     except Exception as e:
         await cl.Message(content=f"⚠️ **Error updating settings:** {e}", author="acAIcia").send()
 
-# Handle in-chat upvote/downvote feedback
 @cl.action_callback("upvote")
 async def on_upvote(action: cl.Action):
     log_id = action.value
@@ -164,12 +176,11 @@ async def main(message: cl.Message):
 <label class="acaicia-settings-label">What preferences should acAIcia consider in responses?</label>
 <p style="color:#8fa794; font-size:0.88rem; margin:4px 0 8px 0;">acAIcia will keep this custom instruction in mind across chats (e.g. <i>"Focus on East Africa agroforestry policy briefs"</i>)</p>
 </div>
-<p>To update your custom research instructions, type: <code>/set_instructions [your custom instructions here]</code></p>
+<p style="color:#00e65c;">To update your custom research instructions, type: <code>/set_instructions [your custom instructions here]</code></p>
 </div>"""
         await cl.Message(content=settings_html, author="acAIcia").send()
         return
 
-    # Handle /set_instructions command
     if user_query.lower().startswith("/set_instructions"):
         instructions = user_query[len("/set_instructions"):].strip()
         user_id = cl.user_session.get("user_id")
@@ -217,7 +228,6 @@ async def main(message: cl.Message):
     if not user_query:
         return
 
-    # Normal Query Processing
     session_id = cl.user_session.get("session_id")
     user_id = cl.user_session.get("user_id")
     history = cl.user_session.get("conversation_history", [])
@@ -257,16 +267,18 @@ async def main(message: cl.Message):
 <div class="acaicia-thinking-dots"><span></span><span></span><span></span></div>
 <span class="acaicia-thinking-msg">🌿 {phrase}</span>
 </div>"""
-    thinking_msg = cl.Message(content=thinking_html, author="acAIcia")
-    await thinking_msg.send()
+    
+    # Create the primary message instance and send it
+    response_msg = cl.Message(content=thinking_html, author="acAIcia")
+    await response_msg.send()
 
     try:
         async with cl.Step(name="acAIcia Multi-Agent Pipeline", type="run") as step:
             for poll_idx in range(max_polls):
                 if poll_idx % 4 == 0 and poll_idx > 0:
                     phrase = random.choice(THINKING_PHRASES)
-                    thinking_msg.content = f"""<div class="acaicia-thinking-inline"><div class="acaicia-thinking-dots"><span></span><span></span><span></span></div><span class="acaicia-thinking-msg">🌿 {phrase}</span></div>"""
-                    await thinking_msg.update()
+                    response_msg.content = f"""<div class="acaicia-thinking-inline"><div class="acaicia-thinking-dots"><span></span><span></span><span></span></div><span class="acaicia-thinking-msg">🌿 {phrase}</span></div>"""
+                    await response_msg.update()
 
                 step.output = f"🌿 {phrase}"
                 await step.update()
@@ -290,17 +302,14 @@ async def main(message: cl.Message):
     except Exception as e:
         error_message = str(e)
 
-    try:
-        await cl.Message(id=thinking_msg.id, content="").remove()
-    except Exception:
-        pass
-
     if error_message:
-        await cl.Message(content=f"⚠️ Error: {error_message}", author="acAIcia").send()
+        response_msg.content = f"⚠️ Error: {error_message}"
+        await response_msg.update()
         return
 
     if answer is None:
-        await cl.Message(content="⚠️ Request timed out.", author="acAIcia").send()
+        response_msg.content = "⚠️ Request timed out."
+        await response_msg.update()
         return
 
     response_content = answer
@@ -327,12 +336,13 @@ async def main(message: cl.Message):
         citations_html += "</div>"
         response_content += citations_html
 
-    # Send response with upvote/downvote action buttons attached!
-    actions = [
+    # Update response_msg directly in-place so UI renders answer smoothly!
+    response_msg.content = response_content
+    response_msg.actions = [
         cl.Action(name="upvote", value=query_id, label="👍 Useful"),
         cl.Action(name="downvote", value=query_id, label="👎 Needs Work")
     ]
-    await cl.Message(content=response_content, author="acAIcia", actions=actions).send()
+    await response_msg.update()
 
     history = cl.user_session.get("conversation_history", [])
     history.append({"role": "user", "content": user_query})

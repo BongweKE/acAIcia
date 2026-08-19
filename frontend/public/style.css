@@ -36,31 +36,55 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
-.acaicia-welcome-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 14px 48px rgba(43, 93, 52, 0.1);
-}
-
-.dark .acaicia-welcome-card:hover {
-    box-shadow: 0 14px 48px rgba(0, 0, 0, 0.45);
-}
-
-@keyframes slide-in {
-    from {
-        opacity: 0;
-        transform: translateY(15px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
 .acaicia-welcome-header {
     display: flex;
     align-items: center;
     gap: 1.25rem;
     margin-bottom: 1.25rem;
+}
+
+.acaicia-user-auth-badge {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    background: rgba(43, 93, 52, 0.06);
+    border: 1px solid rgba(43, 93, 52, 0.12);
+    border-radius: 12px;
+    font-size: 0.9rem;
+    color: #4a5d4e;
+    margin-top: 1rem;
+}
+
+.dark .acaicia-user-auth-badge {
+    background: rgba(63, 169, 97, 0.08);
+    border-color: rgba(63, 169, 97, 0.2);
+    color: #a3bca7;
+}
+
+.acaicia-auth-nav-link {
+    font-weight: 700;
+    color: var(--accent-color);
+    cursor: pointer;
+    background: rgba(21, 170, 91, 0.1);
+    padding: 4px 12px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.acaicia-auth-nav-link:hover {
+    background: var(--accent-color);
+    color: #ffffff;
+}
+
+.dark .acaicia-auth-nav-link {
+    color: var(--emerald-highlight);
+    background: rgba(0, 230, 92, 0.12);
+}
+
+.dark .acaicia-auth-nav-link:hover {
+    background: var(--emerald-highlight);
+    color: #06170d;
 }
 
 .acaicia-logo-svg {
@@ -78,23 +102,12 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     fill: #ffffff;
 }
 
-@keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-4px); }
-}
-
-.acaicia-title-container {
-    display: flex;
-    flex-direction: column;
-}
-
 .acaicia-title {
     font-size: 2.25rem;
     font-weight: 800;
     color: var(--primary-color) !important;
     margin: 0;
     line-height: 1;
-    letter-spacing: -0.02em;
 }
 
 .dark .acaicia-title {
@@ -106,7 +119,6 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     color: #4a5d4e;
     margin: 6px 0 0 0;
     font-weight: 600;
-    letter-spacing: -0.01em;
 }
 
 .dark .acaicia-subtitle {
@@ -177,10 +189,7 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   SETTINGS UI — FOREST DARK MODE (MATCHING MOCKUP)
-   ═══════════════════════════════════════════════════════════════════════════ */
-
+/* SETTINGS UI */
 .acaicia-settings-card {
     background: #06170d;
     border: 1px solid rgba(0, 230, 92, 0.2);
@@ -193,9 +202,6 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
 }
 
 .acaicia-settings-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
     border-bottom: 1px solid rgba(0, 230, 92, 0.15);
     padding-bottom: 1rem;
     margin-bottom: 1.5rem;
@@ -212,38 +218,6 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     color: var(--emerald-highlight);
 }
 
-.acaicia-settings-grid {
-    display: grid;
-    grid-template-columns: 200px 1fr;
-    gap: 2rem;
-}
-
-.acaicia-settings-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.acaicia-settings-nav-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
-    border-radius: 12px;
-    background: transparent;
-    color: #a3bca7;
-    font-weight: 600;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.acaicia-settings-nav-item:hover, .acaicia-settings-nav-item.active {
-    background: rgba(0, 230, 92, 0.1);
-    color: var(--emerald-highlight);
-    border-color: rgba(0, 230, 92, 0.3);
-}
-
 .acaicia-settings-form-group {
     margin-bottom: 1.25rem;
 }
@@ -256,47 +230,7 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     margin-bottom: 6px;
 }
 
-.acaicia-settings-input, .acaicia-settings-textarea {
-    width: 100%;
-    padding: 12px 16px;
-    background: #0e2b1b;
-    border: 1px solid rgba(0, 230, 92, 0.25);
-    border-radius: 12px;
-    color: #ffffff;
-    font-size: 0.95rem;
-    outline: none;
-    box-sizing: border-box;
-}
-
-.acaicia-settings-input:focus, .acaicia-settings-textarea:focus {
-    border-color: var(--emerald-highlight);
-    box-shadow: 0 0 0 3px rgba(0, 230, 92, 0.2);
-}
-
-.acaicia-settings-submit-btn {
-    background: var(--emerald-highlight);
-    color: #06170d;
-    font-weight: 700;
-    font-size: 1rem;
-    padding: 12px 28px;
-    border-radius: 12px;
-    border: none;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    width: 100%;
-    margin-top: 1rem;
-}
-
-.acaicia-settings-submit-btn:hover {
-    background: #2eff7b;
-    transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(0, 230, 92, 0.3);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   IN-CHAT RESPONSE FEEDBACK BUTTONS (UPVOTE / DOWNVOTE)
-   ═══════════════════════════════════════════════════════════════════════════ */
-
+/* IN-CHAT FEEDBACK ACTIONS */
 .acaicia-feedback-actions {
     display: flex;
     align-items: center;
@@ -331,20 +265,7 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     color: #4ade80;
 }
 
-.acaicia-feedback-btn:hover {
-    background: rgba(43, 93, 52, 0.12);
-    transform: translateY(-1px);
-}
-
-.dark .acaicia-feedback-btn:hover {
-    background: rgba(63, 169, 97, 0.2);
-    color: var(--emerald-highlight);
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   ADMIN OBSERVABILITY DASHBOARD
-   ═══════════════════════════════════════════════════════════════════════════ */
-
+/* ADMIN DASHBOARD */
 .acaicia-admin-container {
     max-width: 900px;
     margin: 1.5rem auto;
@@ -415,7 +336,6 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     color: #a3bca7;
 }
 
-/* Latency stage bars */
 .acaicia-latency-bar-container {
     display: flex;
     flex-direction: column;
@@ -433,26 +353,4 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
 .acaicia-latency-label {
     width: 120px;
     font-weight: 600;
-}
-
-.acaicia-latency-track {
-    flex: 1;
-    height: 10px;
-    background: rgba(43, 93, 52, 0.1);
-    border-radius: 5px;
-    overflow: hidden;
-}
-
-.dark .acaicia-latency-track {
-    background: rgba(0, 230, 92, 0.1);
-}
-
-.acaicia-latency-fill {
-    height: 100%;
-    background: var(--accent-color);
-    border-radius: 5px;
-}
-
-.dark .acaicia-latency-fill {
-    background: var(--emerald-highlight);
 }

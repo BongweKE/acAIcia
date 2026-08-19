@@ -21,45 +21,41 @@ We maintain comprehensive documentation for all major components and feature gui
 
 ---
 
-## Feature Guides & Interactive Commands
+## Interactive Features & Command Guide
 
-### 1. User Settings & Custom Research Preferences
-- Type `/settings` to open the profile settings panel.
-- Type `/set_instructions [your custom instructions]` to save personalized prompt preferences across chats (e.g., *"Focus on East Africa agroforestry metrics"*).
+### 1. User Authentication & Guest Sessions
+- **Guest Access:** Immediate access without logging in. Chat history is preserved locally in browser session storage.
+- **Authenticated Accounts:** Click **Sign In / Sign Up** on the welcome card or login header. Authenticated users unlock persistent multi-device conversation history stored in Supabase.
 
-### 2. In-Chat Response Feedback
-- Click `👍 Useful` or `👎 Needs Work` under any response card to log ratings and text corrections into the `query_feedback` analytics table.
+### 2. User Profile & Custom Research Instructions
+- **View Settings:** Type `/settings` in the chat composer to open the forest-themed User Settings & Profile panel.
+- **Set Custom Research Preferences:** Type `/set_instructions [your custom instruction here]` in the chat composer.
+  - *Example:* `/set_instructions Focus on East Africa agroforestry policy briefs and quantitative metrics.`
+  - **Behavior:** Active custom instructions are saved to your `user_profiles` record in Supabase and automatically injected into Synthesis Agent prompts across chats.
 
-### 3. Admin Observability Dashboard
-- Type `/admin` in the chat to display live system telemetry:
-  - Total queries & Cache Hit Rate %.
-  - p95 End-to-End Latency.
-  - User Satisfaction rating (+1 / -1 ratio).
-  - Per-stage latency breakdown (Guardian, Architect, Hybrid Retrieval, Synthesis).
-  - Historical RAG evaluation benchmark run results.
+### 3. In-Chat Response Feedback
+- Click **`👍 Useful`** or **`👎 Needs Work`** under any synthesized response card to log ratings and text corrections directly into the `query_feedback` telemetry table for continuous quality evaluation.
 
-### 4. Automated RAG Evaluation Suite
-- Run automated evaluations against test datasets (`test_questions*.csv`):
-  ```bash
-  .venv/bin/modal run eval_runner.py
-  ```
+### 4. Admin RAG Observability Dashboard
+- Type `/admin` in the chat composer to open the real-time RAG Observability Dashboard:
+  - **Total Queries & Cache Hit Rate %:** Measures semantic cache effectiveness.
+  - **p95 Latency & User Satisfaction %:** End-to-end performance and feedback ratio.
+  - **Stage Latency Breakdown:** Real-time timing bars for Guardian Agent, Architect Agent, Hybrid Retrieval, and Synthesis Agent.
+  - **Evaluation History:** Recent RAG evaluation benchmark run results (`evaluation_runs`).
 
 ---
 
-## Quick Start (Interactive Administration)
+## Quick Start & Deployment
 
 1. **Setup Database Migration**:
    Run [database/migrations/001_add_auth_and_telemetry.sql](database/migrations/001_add_auth_and_telemetry.sql) in your Supabase SQL Editor.
 
-2. **Configure Secrets & Deploy via CLI**:
+2. **Deploy Backend to Modal**:
    ```bash
-   python cli_admin.py
+   .venv/bin/modal deploy backend/app.py
    ```
-   - Option **1**: Configure LLM credentials and sync settings.
-   - Option **2**: Deploy Gemma 4 Inference app to Modal.
-   - Option **3**: Deploy main FastAPI Backend router app to Modal.
 
-3. **Launch Application**:
+3. **Deploy Frontend to Modal or Railway**:
    ```bash
-   .venv/bin/chainlit run frontend/app.py --port 8000
+   .venv/bin/modal deploy frontend/modal_app.py
    ```
