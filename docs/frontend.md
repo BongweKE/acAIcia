@@ -1,33 +1,47 @@
-# Frontend Architecture
+# Frontend Architecture & Interactive Guides
 
 [← Back to README](../README.md)
 
-acAIcia's frontend is a polished, highly responsive application built with **Chainlit** (`frontend/app.py`). It utilizes WebSocket communication and a custom-styled modern UI to interact with the multi-agent backend running asynchronously on Modal.
+The acAIcia frontend is built using **Chainlit** (`frontend/app.py`), customized with a forest dark-mode theme (`#06170d` background, `#0e2b1b` cards, `#00e65c` emerald highlights) matching CIFOR-ICRAF branding.
 
-## Key Features
+---
 
-1. **Refactored Welcome Card**
-   The landing interface has been streamlined into a clean welcome card displaying the acAIcia logo, application name, and tagline only. A temporary description card provides onboarding context for new users. The full forestry & agroforestry aesthetic is preserved via a custom CSS file (`frontend/public/style.css`) and config (`frontend/.chainlit/config.toml`), featuring Outfit typography, smooth animations, and a rich dark/light forestry theme with custom cards for bibliographies and citations.
+## User Settings & Profile Customization Guide
 
-2. **Visual Step Execution (Asynchronous Polling)**
-   Chainlit's native `cl.Step` UI element is used to provide real-time visual progress of the backend pipeline. When a user submits a query, the frontend initiates an asynchronous job on the backend and polls the status endpoint, updating the step spinner in real-time with elapsed execution time.
+Users can view and configure custom research instructions that get automatically injected into Synthesis prompts across chats.
 
-3. **Rich HTML Citation Blocks**
-   When the backend returns the synthesis response and literature sources, the frontend dynamically compiles and formats a curated bibliography card using structured HTML under the response content, highlighting clickable DOI links and reference URLs.
+### Commands & Controls
+- **View Settings:** Type `/settings` in the chat composer to open the User Settings & Profile panel.
+- **Set Custom Research Instructions:** Type `/set_instructions [your custom instruction here]` in the chat.
+  - *Example:* `/set_instructions Focus on agroforestry policy briefs and quantitative metrics in East Africa.`
+- **Backend Integration:** Active instructions are saved to `user_profiles` table via `/user/settings` API and automatically applied to Synthesis prompts.
 
-4. **Credential Dashboard Fully Removed**
-   The credential dashboard has been fully removed from the frontend UI. No administrative settings panel, credential states, or provider indicators are exposed to any user. This prevents unauthorized users from altering LLM providers or viewing credential configurations. All configuration management is strictly offloaded to the local command-line administration tool (`cli_admin.py`).
+---
 
-5. **Randomized Thinking Animation Phrases**
-   While the backend pipeline processes a query, the frontend displays randomized thinking animation phrases to keep the user engaged. These cycling status messages replace a static spinner, providing a more dynamic and polished user experience during processing.
+## In-Chat Response Feedback Guide
 
-6. **Zero Business Logic**
-   The frontend operates exclusively as a presentation client. All semantic embeddings, vector database searches, LLM routing (Gemini, NVIDIA, DeepSeek, or self-hosted Gemma 4), query safety guards, and synthesis reasoning are offloaded to the Modal FastAPI backend.
+Every synthesized answer card includes interactive action buttons:
+- **`👍 Useful` (Upvote):** Logs a positive rating (+1) for the response in `query_feedback`.
+- **`👎 Needs Work` (Downvote):** Logs a negative rating (-1) for quality analysis and evaluation.
 
-## Flow
-- **Startup:** The frontend calls the backend `GET /settings` API (derived from `BACKEND_URL`) to fetch the active model provider for internal health checks. Credentials are still fetched on startup for validation purposes but are no longer displayed in the UI.
-- **Message Submission:** The user submits a prompt, which triggers `POST /query` on the backend. The backend starts the task asynchronously and returns a `query_id`.
-- **Pipeline Progress:** The frontend starts a Chainlit execution step and polls the backend status endpoint `GET /query/status/{query_id}` every 2 seconds. Randomized thinking phrases are displayed during this polling phase.
-- **Completion:** Once completed, the frontend retrieves the response text and sources, constructs the citation cards, and sends the compiled message back to the chat room.
+---
 
+## Admin Observability Dashboard Guide
 
+Administrators can access real-time system performance and RAG metrics directly in the chat interface:
+- **Command:** Type `/admin` in the chat composer.
+- **Metrics Displayed:**
+  - Total queries processed & Cache Hit Rate %.
+  - p95 End-to-End Latency.
+  - User Satisfaction % (+1 / -1 ratio).
+  - Per-stage latency breakdown bars (Guardian, Architect, Hybrid Retrieval, Synthesis).
+  - Historical RAG evaluation benchmark run results (`evaluation_runs`).
+
+---
+
+## Visual Styling
+Custom CSS is configured in `frontend/public/style.css`. Key style components include:
+- `.acaicia-welcome-card`: Forest gradient card with logo SVG.
+- `.acaicia-settings-card`: Dark emerald profile settings container.
+- `.acaicia-feedback-actions` & `.acaicia-feedback-btn`: Styled upvote/downvote buttons.
+- `.acaicia-admin-container` & `.acaicia-latency-bar`: Observability dashboard cards and latency tracks.

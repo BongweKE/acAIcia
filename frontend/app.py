@@ -4,22 +4,21 @@ import random
 import uuid
 import requests
 import chainlit as cl
-from chainlit.input_widget import Select
+from chainlit.input_widget import Select, TextInput
 from pathlib import Path
 
 # Constants
 # DO NOT MODIFY the line below. The CLI admin tool parses this regex string to find the backend URL.
 BACKEND_URL = "https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run/query"
 
-# Allow overriding via environment variable
 API_URL = os.environ.get("BACKEND_URL", BACKEND_URL)
 SETTINGS_URL = API_URL.replace("/query", "/settings")
+USER_SETTINGS_URL = API_URL.replace("/query", "/user/settings")
+FEEDBACK_URL = API_URL.replace("/query", "/feedback")
+ADMIN_METRICS_URL = API_URL.replace("/query", "/admin/metrics")
 
 FRONTEND_DIR = Path(__file__).parent
 
-# Curated array of thinking/processing phrases shown during query execution.
-# To customize: add, remove, or modify entries in this list.
-# A random phrase is selected on each query and refreshed every ~8 seconds.
 THINKING_PHRASES = [
     "Searching the knowledge base for relevant publications…",
     "Retrieving scientific evidence from our research archive…",
@@ -37,41 +36,32 @@ THINKING_PHRASES = [
     "Scanning landscape restoration and conservation studies…",
 ]
 
-
 @cl.on_chat_start
 async def start():
-    # Initialize conversation tracking for multi-turn context immediately.
-    # This prevents sending a None session_id if the user submits a prompt
-    # before the backend settings fetch completes.
-    cl.user_session.set("session_id", str(uuid.uuid4()))
+    session_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4())
+    cl.user_session.set("session_id", session_id)
+    cl.user_session.set("user_id", user_id)
     cl.user_session.set("conversation_history", [])
 
-    # Fetch backend settings on startup (with retries for backend cold start)
     provider_name = "gemini"
-    backend_connected = False
-    
     max_retries = 6
     for attempt in range(max_retries):
         try:
-            # Run synchronous requests in a thread to keep the loop free
             res = await asyncio.to_thread(requests.get, SETTINGS_URL, timeout=15)
             if res.status_code == 200:
                 settings = res.json()
                 provider_name = settings.get("llm_provider", "gemini")
-                backend_connected = True
                 break
         except Exception:
             if attempt < max_retries - 1:
                 await asyncio.sleep(2)
-            else:
-                pass
 
-    # Build main welcome card — logo, name, tagline only
     welcome_html = """<div class="acaicia-welcome-card">
 <div class="acaicia-welcome-header">
 <svg class="acaicia-logo-svg" viewBox="0 0 100 100" width="64" height="64">
   <g class="acacia-fill">
-    <path d="M 47 80 C 47 70, 48 62, 46 56 C 44 50, 36 46, 28 43 L 30 40 C 38 43, 45 47, 48 52 C 49 48, 51 45, 54 42 C 60 38, 68 37, 76 36 L 77 39 C 70 40, 62 41, 57 45 C 54 49, 52 56, 52 80 Z" />
+    <path d="M 47 80 C 47 70, 48 62, 46 56 C 44 50, 36 46, 28 43 L 30 40 C 38 43, 45 47, 48 52 C 49 48, 51 45, 54 42 C 60 38, 68 37, 76 36 L 77 39 C 70 40, 62 41, 57 45 C 54 49, 52 80 Z" />
     <path d="M 48 54 C 45 50, 41 47, 36 45 L 37 42 C 43 44, 47 48, 49 51 Z" />
     <path d="M 54 48 C 57 44, 63 41, 69 40 L 70 43 C 65 44, 59 47, 56 51 Z" />
     <ellipse cx="50" cy="30" rx="36" ry="7" />
@@ -91,17 +81,14 @@ async def start():
 
     await cl.Message(content=welcome_html, author="acAIcia").send()
 
-    # Build temporary description card — removed on first user message
     desc_html = """<div class="acaicia-info-card">
-<p class="acaicia-info-text">Ask me questions related to forestry, agroforestry, climate change, biodiversity, and Landscape Alliance's research areas. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.</p>
+<p class="acaicia-info-text">Ask me questions related to forestry, agroforestry, climate change, peatlands, food systems, biodiversity, and Landscape Alliance's research areas. Type <code>/settings</code> to configure your profile or <code>/admin</code> to view RAG telemetry.</p>
 </div>"""
 
     temp_msg = cl.Message(content=desc_html, author="acAIcia")
     await temp_msg.send()
-    # Store the message ID so we can remove it on first user message
     cl.user_session.set("temp_info_msg_id", temp_msg.id)
 
-    # Setup ChatSettings for LLM Provider
     settings = cl.ChatSettings([
         Select(
             id="llm_provider",
@@ -122,55 +109,119 @@ async def setup_agent(settings):
     provider = settings.get("llm_provider")
     if not provider:
         return
-        
     try:
-        res = await asyncio.to_thread(
-            requests.post,
-            SETTINGS_URL,
-            json={"llm_provider": provider},
-            timeout=10
-        )
+        res = await asyncio.to_thread(requests.post, SETTINGS_URL, json={"llm_provider": provider}, timeout=10)
         if res.status_code == 200:
-            provider_display = {
-                "gemini": "Google Gemini API",
-                "nvidia": "NVIDIA NIM API",
-                "deepseek": "DeepSeek API",
-                "modal": "Modal Gemma 4 (Self-Hosted)"
-            }.get(provider, provider)
-            await cl.Message(content=f"⚙️ **System Update:** LLM provider changed to `{provider_display}` successfully.", author="acAIcia").send()
-        else:
-            await cl.Message(content=f"⚠️ **Failed to update settings:** Backend returned status {res.status_code}", author="acAIcia").send()
+            provider_display = {"gemini": "Google Gemini API", "nvidia": "NVIDIA NIM API", "deepseek": "DeepSeek API", "modal": "Modal Gemma 4"}.get(provider, provider)
+            await cl.Message(content=f"⚙️ **System Update:** LLM provider changed to `{provider_display}`.", author="acAIcia").send()
     except Exception as e:
         await cl.Message(content=f"⚠️ **Error updating settings:** {e}", author="acAIcia").send()
+
+# Handle in-chat upvote/downvote feedback
+@cl.action_callback("upvote")
+async def on_upvote(action: cl.Action):
+    log_id = action.value
+    user_id = cl.user_session.get("user_id")
+    try:
+        await asyncio.to_thread(requests.post, FEEDBACK_URL, json={"log_id": log_id, "user_id": user_id, "rating": 1}, timeout=5)
+        await cl.Message(content="👍 *Thank you for your feedback!*", author="acAIcia").send()
+    except Exception as e:
+        await cl.Message(content=f"⚠️ Error sending feedback: {e}", author="acAIcia").send()
+
+@cl.action_callback("downvote")
+async def on_downvote(action: cl.Action):
+    log_id = action.value
+    user_id = cl.user_session.get("user_id")
+    try:
+        await asyncio.to_thread(requests.post, FEEDBACK_URL, json={"log_id": log_id, "user_id": user_id, "rating": -1}, timeout=5)
+        await cl.Message(content="👎 *Thank you for your feedback. We logged this response for quality evaluation.*", author="acAIcia").send()
+    except Exception as e:
+        await cl.Message(content=f"⚠️ Error sending feedback: {e}", author="acAIcia").send()
 
 @cl.on_message
 async def main(message: cl.Message):
     user_query = message.content.strip()
 
-    # Remove the temporary info card on first message
     temp_msg_id = cl.user_session.get("temp_info_msg_id")
     if temp_msg_id:
         try:
             await cl.Message(id=temp_msg_id, content="").remove()
         except Exception:
-            pass  # Already removed or not found
+            pass
         cl.user_session.set("temp_info_msg_id", None)
-    
-    # Warning for file uploads
-    if message.elements:
-        file_names = [e.name for e in message.elements]
-        files_str = ", ".join(f"`{name}`" for name in file_names)
-        await cl.Message(
-            author="acAIcia",
-            content=f"📎 **Attached Files:** {files_str}\n\n*Note: Direct attachments are processed for the current query only. To permanently ingest publications into the RAG database, please use the admin CLI (`cli_admin.py`).*"
-        ).send()
+
+    # 1. Special Command: User Settings UI
+    if user_query.lower() == "/settings":
+        settings_html = """<div class="acaicia-settings-card">
+<div class="acaicia-settings-header">
+<h2 class="acaicia-settings-title">User <span>Settings & Profile</span></h2>
+</div>
+<div class="acaicia-settings-form-group">
+<label class="acaicia-settings-label">Full Name</label>
+<p style="color:#a3bca7; margin:0 0 10px 0;">Guest Researcher</p>
+</div>
+<div class="acaicia-settings-form-group">
+<label class="acaicia-settings-label">What preferences should acAIcia consider in responses?</label>
+<p style="color:#8fa794; font-size:0.88rem; margin:4px 0 8px 0;">acAIcia will keep this custom instruction in mind across chats (e.g. <i>"Focus on East Africa agroforestry policy briefs"</i>)</p>
+</div>
+<p>To update your custom research instructions, type: <code>/set_instructions [your custom instructions here]</code></p>
+</div>"""
+        await cl.Message(content=settings_html, author="acAIcia").send()
+        return
+
+    # Handle /set_instructions command
+    if user_query.lower().startswith("/set_instructions"):
+        instructions = user_query[len("/set_instructions"):].strip()
+        user_id = cl.user_session.get("user_id")
+        try:
+            res = await asyncio.to_thread(requests.post, USER_SETTINGS_URL, json={"user_id": user_id, "custom_instructions": instructions}, timeout=10)
+            if res.status_code == 200:
+                await cl.Message(content=f"✓ **Custom Instructions Updated:** `{instructions}` will now be applied to Synthesis across your chats.", author="acAIcia").send()
+            else:
+                await cl.Message(content=f"⚠️ Failed to update instructions: status {res.status_code}", author="acAIcia").send()
+        except Exception as e:
+            await cl.Message(content=f"⚠️ Error updating settings: {e}", author="acAIcia").send()
+        return
+
+    # 2. Special Command: Admin Metrics Dashboard
+    if user_query.lower() == "/admin":
+        try:
+            m_res = await asyncio.to_thread(requests.get, ADMIN_METRICS_URL, timeout=10)
+            if m_res.status_code == 200:
+                m = m_res.json()
+                st = m.get("stage_latency_averages", {})
+                fb = m.get("user_feedback", {})
+                admin_html = f"""<div class="acaicia-admin-container">
+<h2 class="acaicia-admin-title">🌿 acAIcia Admin & RAG Observability Dashboard</h2>
+<div class="acaicia-admin-metrics-grid">
+  <div class="acaicia-admin-card"><div class="acaicia-admin-card-val">{m.get('total_queries', 0)}</div><div class="acaicia-admin-card-lbl">Total Queries</div></div>
+  <div class="acaicia-admin-card"><div class="acaicia-admin-card-val">{m.get('cache_hit_rate_pct', 0)}%</div><div class="acaicia-admin-card-lbl">Cache Hit Rate</div></div>
+  <div class="acaicia-admin-card"><div class="acaicia-admin-card-val">{m.get('p95_latency_ms', 0)}ms</div><div class="acaicia-admin-card-lbl">p95 Latency</div></div>
+  <div class="acaicia-admin-card"><div class="acaicia-admin-card-val">{fb.get('satisfaction_pct', 100)}%</div><div class="acaicia-admin-card-lbl">User Satisfaction ({fb.get('upvotes', 0)}👍 / {fb.get('downvotes', 0)}👎)</div></div>
+</div>
+<h3>Latency Breakdown by Agent Stage</h3>
+<div class="acaicia-latency-bar-container">
+  <div class="acaicia-latency-row"><span class="acaicia-latency-label">Guardian Agent:</span><span>{st.get('guardian_ms', 0)} ms</span></div>
+  <div class="acaicia-latency-row"><span class="acaicia-latency-label">Architect Agent:</span><span>{st.get('architect_ms', 0)} ms</span></div>
+  <div class="acaicia-latency-row"><span class="acaicia-latency-label">Hybrid Retrieval:</span><span>{st.get('retrieval_ms', 0)} ms</span></div>
+  <div class="acaicia-latency-row"><span class="acaicia-latency-label">Synthesis Agent:</span><span>{st.get('synthesis_ms', 0)} ms</span></div>
+</div>
+</div>"""
+                await cl.Message(content=admin_html, author="acAIcia").send()
+            else:
+                await cl.Message(content=f"⚠️ Failed to fetch admin metrics: {m_res.status_code}", author="acAIcia").send()
+        except Exception as e:
+            await cl.Message(content=f"⚠️ Error fetching admin metrics: {e}", author="acAIcia").send()
+        return
 
     if not user_query:
         return
 
-    # 1. Post query to backend to initiate async task
+    # Normal Query Processing
     session_id = cl.user_session.get("session_id")
+    user_id = cl.user_session.get("user_id")
     history = cl.user_session.get("conversation_history", [])
+
     try:
         init_response = await asyncio.to_thread(
             requests.post,
@@ -178,37 +229,29 @@ async def main(message: cl.Message):
             json={
                 "query": user_query,
                 "session_id": session_id,
+                "user_id": user_id,
                 "conversation_history": history,
             },
             timeout=15
         )
         init_response.raise_for_status()
         init_data = init_response.json()
-        
         query_id = init_data.get("query_id")
-        if not query_id:
-            raise Exception("Backend did not return a query ID.")
     except Exception as e:
         err_html = f"""<div class="acaicia-error-card">
 <div class="acaicia-error-header">⚠️ Connection Error</div>
-<div class="acaicia-error-body">
-Failed to connect to the backend server:
-<pre style="margin-top: 8px; font-family: monospace; white-space: pre-wrap;">{e}</pre>
-</div>
+<div class="acaicia-error-body">Failed to connect to backend: <pre style="margin-top:8px;">{e}</pre></div>
 </div>"""
         await cl.Message(content=err_html, author="acAIcia").send()
         return
 
-    # 2. Poll status API with a visual step and randomized thinking phrases
     status_url = API_URL.replace("/query", f"/query/status/{query_id}")
-    max_polls = 120  # 4 minutes maximum wait time
-    poll_interval = 2.0  # poll every 2 seconds
-    
+    max_polls = 120
     answer = None
     sources = []
     error_message = None
+    is_cache_hit = False
 
-    # Send a visual thinking indicator message that will be removed when done
     phrase = random.choice(THINKING_PHRASES)
     thinking_html = f"""<div class="acaicia-thinking-inline">
 <div class="acaicia-thinking-dots"><span></span><span></span><span></span></div>
@@ -220,109 +263,78 @@ Failed to connect to the backend server:
     try:
         async with cl.Step(name="acAIcia Multi-Agent Pipeline", type="run") as step:
             for poll_idx in range(max_polls):
-                # Refresh the thinking phrase every ~8 seconds (4 polls)
                 if poll_idx % 4 == 0 and poll_idx > 0:
                     phrase = random.choice(THINKING_PHRASES)
-                    thinking_html = f"""<div class="acaicia-thinking-inline">
-<div class="acaicia-thinking-dots"><span></span><span></span><span></span></div>
-<span class="acaicia-thinking-msg">🌿 {phrase}</span>
-</div>"""
-                    thinking_msg.content = thinking_html
+                    thinking_msg.content = f"""<div class="acaicia-thinking-inline"><div class="acaicia-thinking-dots"><span></span><span></span><span></span></div><span class="acaicia-thinking-msg">🌿 {phrase}</span></div>"""
                     await thinking_msg.update()
-                
+
                 step.output = f"🌿 {phrase}"
                 await step.update()
-                
+
                 try:
                     status_res = await asyncio.to_thread(requests.get, status_url, timeout=10)
                     if status_res.status_code == 200:
                         status_data = status_res.json()
-                        current_status = status_data.get("status")
-                        
-                        if current_status == "completed":
+                        if status_data.get("status") == "completed":
                             answer = status_data.get("response", "No response generated.")
                             sources = status_data.get("sources", [])
-                            step.output = "Pipeline execution complete."
+                            is_cache_hit = status_data.get("cache_hit", False)
+                            step.output = "Execution complete."
                             break
-                        elif current_status == "failed":
-                            raise Exception(status_data.get("error", "Unknown error during processing."))
+                        elif status_data.get("status") == "failed":
+                            raise Exception(status_data.get("error", "Unknown processing error."))
                 except Exception as poll_err:
-                    # If connection error during poll, retry unless it is a failure state
                     if "failed" in str(poll_err).lower():
-                        step.output = f"Pipeline execution failed: {poll_err}"
                         raise poll_err
-                
-
-                await asyncio.sleep(poll_interval)
+                await asyncio.sleep(1.5)
     except Exception as e:
         error_message = str(e)
 
-    # Remove the thinking indicator message now that processing is done
     try:
         await cl.Message(id=thinking_msg.id, content="").remove()
     except Exception:
-        pass  # Already removed or not found
+        pass
 
     if error_message:
-        if any(w in error_message.lower() for w in ["context length", "token size", "maximum context", "too many tokens"]):
-            err_html = """<div class="acaicia-error-card">
-<div class="acaicia-error-header">⚠️ Context Length Exceeded</div>
-<div class="acaicia-error-body">
-This conversation has become too long and has exceeded the model's memory limit. 
-Please click the <b>New Chat</b> button in the sidebar to reset history and start a fresh session.
-</div>
-</div>"""
-        else:
-            err_html = f"""<div class="acaicia-error-card">
-<div class="acaicia-error-header">⚠️ Error Processing Query</div>
-<div class="acaicia-error-body">
-An error occurred during pipeline execution:
-<pre style="margin-top: 8px; font-family: monospace; white-space: pre-wrap;">{error_message}</pre>
-</div>
-</div>"""
-        await cl.Message(content=err_html, author="acAIcia").send()
+        await cl.Message(content=f"⚠️ Error: {error_message}", author="acAIcia").send()
         return
 
     if answer is None:
-        await cl.Message(content="⚠️ Request timed out or failed on the backend.", author="acAIcia").send()
+        await cl.Message(content="⚠️ Request timed out.", author="acAIcia").send()
         return
 
-    # 3. Format response with custom CSS classes for citation blocks
     response_content = answer
+    if is_cache_hit:
+        response_content = "⚡ *(Fast Cache Hit)*\n\n" + response_content
 
     if sources:
-        citations_html = "\n\n<div class='source-container'>"
-        citations_html += "<div class='source-header-title'>🌿 Sources & Citations</div>"
+        citations_html = "\n\n<div class='source-container'><div class='source-header-title'>🌿 Sources & Citations</div>"
         for idx, src in enumerate(sources):
             title = src.get('title', 'Unknown Title')
             authors = src.get('authors', 'Unknown Authors')
             year = src.get('year', 'n.d.')
             doi = src.get('doi', '')
             url = src.get('url', '')
-            
             doi_link = f"<a href='https://doi.org/{doi}' target='_blank'>DOI: {doi}</a>" if doi else ""
             url_link = f"<a href='{url}' target='_blank'>Reference Link</a>" if url else ""
-            
             links = " | ".join(filter(None, [doi_link, url_link]))
-            links_div = f"<div class='source-links'>{links}</div>" if links else ""
-            
             citations_html += f"""
 <div class='source-item'>
     <div class='source-title'>[{idx+1}] {title}</div>
     <div class='source-authors'><i>Authors:</i> {authors} ({year})</div>
-    {links_div}
+    <div class='source-links'>{links}</div>
 </div>"""
         citations_html += "</div>"
         response_content += citations_html
 
-    # Send the final response to the user
-    await cl.Message(content=response_content, author="acAIcia").send()
-    
-    # Update conversation history for multi-turn context.
-    # This is stored locally in the Chainlit session and also persisted
-    # server-side by the backend (keyed by session_id).
+    # Send response with upvote/downvote action buttons attached!
+    actions = [
+        cl.Action(name="upvote", value=query_id, label="👍 Useful"),
+        cl.Action(name="downvote", value=query_id, label="👎 Needs Work")
+    ]
+    await cl.Message(content=response_content, author="acAIcia", actions=actions).send()
+
     history = cl.user_session.get("conversation_history", [])
     history.append({"role": "user", "content": user_query})
     history.append({"role": "assistant", "content": answer})
-    # Keep last 10 messages (5 exchanges) to bound memory
     cl.user_session.set("conversation_history", history[-10:])

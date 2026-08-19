@@ -1,66 +1,124 @@
-# Database Architecture
+# Database Schema (Supabase Postgres)
 
 [← Back to README](../README.md)
 
-acAIcia is backed by Supabase (PostgreSQL). It leverages the `pgvector` extension to merge structured relational data tightly with unstructured multi-dimensional floating-point arrays (Embeddings). 
+acAIcia utilizes **Supabase** (Postgres 15+) with the `pgvector` extension enabled for storing document catalogs, 768-dimensional vector embeddings (`BAAI/bge-base-en-v1.5`), user profiles, in-chat feedback, semantic cache, and granular telemetry.
 
-The schema is defined in `database/schema.sql`.
-
-## Schema Definition
+## Entity Relationship Diagram
 
 ```mermaid
 erDiagram
-    documents_catalog ||--o{ document_embeddings : "1 : M"
+    user_profiles ||--o{ conversations : owns
+    conversations ||--o{ conversation_messages : contains
+    documents_catalog ||--o{ document_embeddings : contains
+    query_interaction_logs ||--o{ query_chunk_logs : logs
+    query_interaction_logs ||--o{ query_feedback : receives
+    user_profiles ||--o{ query_interaction_logs : triggers
+    
+    user_profiles {
+        uuid user_id PK
+        text email
+        text full_name
+        text preferred_name
+        text work_description
+        text custom_instructions
+        text theme
+    }
+    
+    conversations {
+        uuid conversation_id PK
+        uuid user_id FK
+        text title
+        timestamp created_at
+    }
+
+    conversation_messages {
+        uuid message_id PK
+        uuid conversation_id FK
+        text role
+        text content
+        jsonb sources
+    }
+
     documents_catalog {
         uuid id PK
-        string title
-        string[] authors
+        text title
+        text[] authors
         integer publication_year
-        string[] topic_keywords
-        string url_link
-        string doi
+        text doi
+        text url_link
     }
+
     document_embeddings {
         uuid id PK
         uuid document_id FK
         text chunk_text
-        vector embedding "768 dimensions"
+        vector_768 embedding
     }
 
     query_interaction_logs {
         uuid log_id PK
-        timestamp timestamp
-        string session_id
+        uuid user_id FK
         text original_query
         boolean guardian_passed
         text architect_query
-        uuid[] retrieved_doc_ids
-        string synthesis_source
+        boolean cache_hit
+        integer guardian_ms
+        integer architect_ms
+        integer retrieval_ms
+        integer synthesis_ms
         integer total_tokens_used
         integer latency_ms
     }
 
-    ingestion_logs {
-        uuid log_id PK
-        timestamp timestamp
-        string filename
-        integer chunks_created
-        string status "Success / Failed"
-        text error_message
+    query_chunk_logs {
+        uuid id PK
+        uuid log_id FK
+        uuid chunk_id FK
+        float rrf_score
+        integer final_rank
+    }
+
+    query_feedback {
+        uuid feedback_id PK
+        uuid log_id FK
+        uuid user_id FK
+        integer rating
+        text correction_text
+    }
+
+    semantic_cache {
+        uuid cache_id PK
+        text query_text
+        vector_768 query_embedding
+        text response_text
+        jsonb sources
+    }
+
+    evaluation_runs {
+        uuid run_id PK
+        text dataset_name
+        integer num_questions
+        float hit_rate_at_5
+        float context_precision
+        float avg_latency_ms
+        jsonb details
     }
 ```
 
-## Key Capabilities
+---
 
-1. **`pgvector` indexing**: 
-   The embeddings table defines `embedding vector(768)` and uses an **HNSW** (Hierarchical Navigable Small World) index:
-   ```sql
-   create index on document_embeddings using hnsw (embedding vector_cosine_ops);
-   ```
-   This ensures hyper-fast cosine similarity lookups over thousands of vectors.
+## Stored Functions (RPC)
 
-2. **RPC Matching (`match_documents`)**: 
-   Vector similarity operations are pushed down into the database via a raw SQL function. The function takes the user's `query_embedding`, a `match_threshold`, and a `match_count`, running a direct mathematical sorting (`<=>`) operator natively on Postgres, returning the combined relational `title`/`authors` data and the chunk text in a single REST payload.
+### 1. `match_documents_hybrid` (Reciprocal Rank Fusion)
+Combines dense vector similarity (`<=> query_embedding`) with PostgreSQL full-text search (`to_tsvector` / `websearch_to_tsquery`) using Reciprocal Rank Fusion:
+$$\text{RRF Score} = \frac{1}{k + r_{\text{vector}}} + \frac{1}{k + r_{\text{text}}}$$
+This function ensures exact matches on DOIs, species names, dates, and geographic locations are ranked highest.
 
-3. **Analytics**:
-   The isolated `query_interaction_logs` and `ingestion_logs` tables provide a highly secure sandbox for BI visualization natively via the Supabase dashboard without polluting the actual embeddings schema.
+### 2. `match_semantic_cache`
+Queries `semantic_cache` using HNSW cosine distance (`1 - (query_embedding <=> cache_embedding)`). If similarity >= 0.95, returns stored answer and citations instantly.
+
+---
+
+## Database Migrations
+All new tables, indices, and stored functions are defined in [database/migrations/001_add_auth_and_telemetry.sql](../database/migrations/001_add_auth_and_telemetry.sql). Execute this SQL file in your Supabase SQL Editor to initialize or upgrade your database schema.
