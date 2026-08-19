@@ -127,15 +127,32 @@ The backend query engine (`backend/app.py`) executes an asynchronous 4-stage pip
 
 ---
 
-## 🧠 Developer & Agent Guidelines (Holistic Architecture & Documentation Rule)
+## 🧠 Developer & Agent Guidelines (Holistic Architecture & Operational Tips)
 
-1. **Holistic Architectural Scoping**:
+1. **Python Environment & Modal CLI Execution**:
+   - The virtual environment is located at `.venv/`. **ALWAYS** call Python and Modal CLI commands using `.venv` executables (e.g., `.venv/bin/modal deploy backend/app.py` or `.venv/bin/python eval_runner.py`).
+   - Modal apps and container logs are easily accessible via `.venv/bin/modal app list` and `.venv/bin/modal app logs <app-name>`.
+
+2. **Frontend React SPA Execution**:
+   - The React frontend resides in `frontend/`. Always execute `npm` commands inside `frontend/` (e.g. `cd frontend && npm run build`).
+   - Static typecheck is enforced via `tsc && vite build`. Always verify clean production compilation (`0 errors`) before pushing or deploying.
+   - API endpoints use `frontend/src/api/client.ts` with fallback to `https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run`.
+
+3. **Holistic Architectural Scoping**:
    - All code updates must consider the end-to-end system architecture (Vite + React 18 SPA frontend, Modal serverless multi-agent backend, FastAPI endpoints, Supabase database, and Railway deployment).
    - Never implement isolated symptom patches that break API contracts, CORS headers, multi-turn chat sessions, or RBAC controls.
 
-2. **Continuous Documentation Integrity**:
+4. **Multi-Turn Session & Semantic Cache Rules**:
+   - Single-turn standalone queries check `semantic_cache` (similarity threshold >= 0.95).
+   - Multi-turn conversation sessions (`conversation_history` present) **MUST bypass semantic cache** (`if not conversation_history:`) so the Synthesis Agent uses LLM context awareness instead of returning out-of-context cached single query answers.
+
+5. **FastAPI CORS & DB Client Initialization**:
+   - FastAPI entrypoint (`fastapi_app_entrypoint`) in `backend/app.py` MUST retain `CORSMiddleware` (`allow_origins=["*"]`) for cross-origin frontend API calls.
+   - `supabase` client initialization must remain present inside `fastapi_app_entrypoint()` before endpoint declarations.
+
+6. **Continuous Documentation Integrity**:
    - Whenever updating features, backend endpoints, frontend components, or deployment scripts, **immediately update the corresponding documentation files** in `docs/` (`architecture.md`, `frontend.md`, `deployment_guide.md`, `backend_agents.md`, `database_schema.md`) and `AGENTS.md`.
    - Ensure `README.md` accurately links to the updated documentation.
 
-3. **Verification Before Declaration**:
+7. **Verification Before Declaration**:
    - Always run static verification (`tsc --noEmit` and `npm run build`) and test suites before declaring tasks resolved.
