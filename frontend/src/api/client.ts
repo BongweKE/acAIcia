@@ -10,7 +10,7 @@ import type {
   QueryStatusResponse,
 } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run';
 
 async function handleResponse<T>(response: Response, errorMessage: string): Promise<T> {
   if (!response.ok) {
@@ -25,7 +25,12 @@ async function handleResponse<T>(response: Response, errorMessage: string): Prom
     }
     throw new Error(`${errorMessage}: ${errorDetail} (${response.status})`);
   }
-  return response.json() as Promise<T>;
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch (err) {
+    throw new Error(`${errorMessage}: Received non-JSON response from server (${text.slice(0, 50)}...)`);
+  }
 }
 
 export async function getPromptPills(): Promise<PromptPillsResponse> {

@@ -616,8 +616,16 @@ def fastapi_app_entrypoint():
     if not all([SUPABASE_URL, SUPABASE_KEY]):
         raise RuntimeError("Missing necessary environment variables for Supabase.")
 
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    from fastapi.middleware.cors import CORSMiddleware
     fastapi_app = FastAPI(title="acAIcia Core API")
+
+    fastapi_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @fastapi_app.get("/prompt_pills")
     def get_prompt_pills():

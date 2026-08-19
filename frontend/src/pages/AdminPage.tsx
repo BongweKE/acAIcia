@@ -60,7 +60,7 @@ export const AdminPage: React.FC = () => {
         <h3 className="text-xl font-bold text-rose-200 font-sans">Admin Access Restricted</h3>
         <p className="text-xs text-gray-300 leading-relaxed">
           The Admin Observability Dashboard requires Administrator credentials.
-          Please log in as an administrator (<code className="text-emerald-400 font-mono">b.obaga@landscapealliance.org</code> or <code className="text-emerald-400 font-mono">admin@acaicia.org</code>).
+          Please log in with an authorized Administrator account.
         </p>
         <div className="pt-2">
           <button
