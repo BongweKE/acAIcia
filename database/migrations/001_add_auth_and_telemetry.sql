@@ -24,6 +24,9 @@ create table if not exists user_profiles (
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
+-- Ensure role column exists if user_profiles table was created in a prior migration run
+alter table user_profiles add column if not exists role text default 'researcher';
+
 -- Default system guest user profile if needed
 insert into user_profiles (user_id, email, full_name, preferred_name, work_description, custom_instructions, role)
 values ('00000000-0000-0000-0000-000000000000'::uuid, 'guest@acaicia.org', 'Guest Researcher', 'Guest', 'Independent Researcher', '', 'guest')
