@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-forest-900 text-gray-100 font-sans antialiased min-h-screen selection:bg-emerald-500/30 selection:text-emerald-300;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-forest-800/40 backdrop-blur-md border border-forest-700/50 shadow-lg;
+  }
+  
+  .glass-card {
+    @apply bg-forest-700/40 backdrop-blur-md border border-forest-600/40 hover:border-emerald-500/40 transition-colors shadow-md;
+  }
+  
+  .glass-input {
+    @apply bg-forest-900/60 backdrop-blur-md border border-forest-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-all;
+  }
+  
+  .border-glow {
+    border-color: rgba(16, 185, 129, 0.4);
+    box-shadow: 0 0 15px -3px rgba(16, 185, 129, 0.25);
+  }
+  
+  .text-glow {
+    text-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
+  }
+}
+
+/* Custom scrollbar styling for dark forestry green theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0F291E;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1C4737;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #10B981;
+}
