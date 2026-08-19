@@ -2,7 +2,7 @@
 -- Migration: 001_add_auth_and_telemetry.sql
 -- Description: Adds user profiles, persistent user chat history, granular
 --              telemetry, chunk ranking logs, in-chat feedback, semantic cache,
---              evaluation runs tracking, and hybrid RRF search.
+--              evaluation runs tracking, dynamic prompt pills, and hybrid RRF search.
 -- ============================================================================
 
 -- Ensure pgvector extension is available
@@ -17,6 +17,7 @@ create table if not exists user_profiles (
   work_description text,
   custom_instructions text,
   avatar_url text,
+  role text default 'researcher',
   theme text default 'forest_dark',
   language text default 'en',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
@@ -24,8 +25,8 @@ create table if not exists user_profiles (
 );
 
 -- Default system guest user profile if needed
-insert into user_profiles (user_id, email, full_name, preferred_name, work_description, custom_instructions)
-values ('00000000-0000-0000-0000-000000000000'::uuid, 'guest@acaicia.org', 'Guest Researcher', 'Guest', 'Independent Researcher', '')
+insert into user_profiles (user_id, email, full_name, preferred_name, work_description, custom_instructions, role)
+values ('00000000-0000-0000-0000-000000000000'::uuid, 'guest@acaicia.org', 'Guest Researcher', 'Guest', 'Independent Researcher', '', 'guest')
 on conflict (user_id) do nothing;
 
 -- 2. User Conversations & Messages (Persistent History for Logged-In Users)
@@ -130,7 +131,17 @@ create table if not exists evaluation_runs (
   details jsonb
 );
 
--- 8. Hybrid Retrieval RPC Function (Reciprocal Rank Fusion)
+-- 8. Dynamic Prompt Pills Table (Populated by Nightly Cron Job)
+create table if not exists prompt_pills (
+  pill_id uuid primary key default gen_random_uuid(),
+  question_text text not null,
+  topic_category text default 'general',
+  document_title text,
+  doi text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 9. Hybrid Retrieval RPC Function (Reciprocal Rank Fusion)
 create or replace function match_documents_hybrid (
   query_text text,
   query_embedding vector(768),

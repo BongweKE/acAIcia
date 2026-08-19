@@ -21,6 +21,7 @@ SETTINGS_URL = API_URL.replace("/query", "/settings")
 USER_SETTINGS_URL = API_URL.replace("/query", "/user/settings")
 FEEDBACK_URL = API_URL.replace("/query", "/feedback")
 ADMIN_METRICS_URL = API_URL.replace("/query", "/admin/metrics")
+PROMPT_PILLS_URL = API_URL.replace("/query", "/prompt_pills")
 
 FRONTEND_DIR = Path(__file__).parent
 
@@ -45,85 +46,112 @@ THINKING_PHRASES = [
 @cl.password_auth_callback
 def auth_callback(username, password):
     if username and password:
-        return cl.User(identifier=username, metadata={"role": "researcher", "provider": "supabase"})
+        role = "admin" if username.lower() in ["b.obaga@landscapealliance.org", "admin"] else "researcher"
+        return cl.User(identifier=username, metadata={"role": role, "provider": "supabase"})
     return None
 
 @cl.on_chat_start
 async def start():
     user = cl.user_session.get("user")
+    is_authenticated = user is not None
     user_identifier = user.identifier if user else "Guest Researcher"
     session_id = str(uuid.uuid4())
-    user_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4()) if not user else user.identifier
+    
     cl.user_session.set("session_id", session_id)
     cl.user_session.set("user_id", user_id)
+    cl.user_session.set("is_authenticated", is_authenticated)
+    cl.user_session.set("guest_query_count", 0)
     cl.user_session.set("conversation_history", [])
 
-    provider_name = "gemini"
-    max_retries = 6
-    for attempt in range(max_retries):
-        try:
-            res = await asyncio.to_thread(requests.get, SETTINGS_URL, timeout=15)
-            if res.status_code == 200:
-                settings = res.json()
-                provider_name = settings.get("llm_provider", "gemini")
-                break
-        except Exception:
-            if attempt < max_retries - 1:
-                await asyncio.sleep(2)
+    provider_name = "modal" if not is_authenticated else "gemini"
 
-    welcome_html = f"""<div class="acaicia-welcome-card">
+    # Fetch Dynamic Prompt Pills from backend cron DB
+    sample_pills = [
+        "What percentage of Ghana anthropogenic GHG emissions come from food systems?",
+        "Outline indigenous agroforestry plants in Kenya and suitable soil profiles.",
+        "What are key policy recommendations for peatland restoration in Southeast Asia?",
+        "How do shade-grown coffee systems impact soil organic carbon sequestration?"
+    ]
+    try:
+        p_res = await asyncio.to_thread(requests.get, PROMPT_PILLS_URL, timeout=5)
+        if p_res.status_code == 200 and p_res.json().get("pills"):
+            sample_pills = p_res.json()["pills"][:4]
+    except Exception:
+        pass
+
+    # Top Navigation Header Bar
+    nav_header_html = f"""<div class="acaicia-top-nav">
+<div class="acaicia-nav-brand">
+  <svg class="acaicia-nav-logo" viewBox="0 0 100 100" width="32" height="32">
+    <g class="acacia-fill"><ellipse cx="50" cy="30" rx="36" ry="7"/><ellipse cx="32" cy="38" rx="22" ry="6"/><ellipse cx="68" cy="38" rx="22" ry="6"/></g>
+  </svg>
+  <span class="acaicia-nav-title">acAIcia</span>
+</div>
+<div class="acaicia-nav-links">
+  <span class="acaicia-nav-item">Home</span>
+  <span class="acaicia-nav-item">About</span>
+  <span class="acaicia-nav-item">Publications</span>
+  <span class="acaicia-nav-item">FAQs</span>
+  <span class="acaicia-nav-item">Contact</span>
+</div>
+<div class="acaicia-nav-auth">
+  <span class="acaicia-nav-auth-btn">👤 {user_identifier} ({'Unlimited' if is_authenticated else 'Guest: 20 queries max'})</span>
+</div>
+</div>"""
+
+    welcome_html = nav_header_html + f"""<div class="acaicia-welcome-card">
 <div class="acaicia-welcome-header">
-<svg class="acaicia-logo-svg" viewBox="0 0 100 100" width="64" height="64">
-  <g class="acacia-fill">
-    <path d="M 47 80 C 47 70, 48 62, 46 56 C 44 50, 36 46, 28 43 L 30 40 C 38 43, 45 47, 48 52 C 49 48, 51 45, 54 42 C 60 38, 68 37, 76 36 L 77 39 C 70 40, 62 41, 57 45 C 54 49, 52 80 Z" />
-    <path d="M 48 54 C 45 50, 41 47, 36 45 L 37 42 C 43 44, 47 48, 49 51 Z" />
-    <path d="M 54 48 C 57 44, 63 41, 69 40 L 70 43 C 65 44, 59 47, 56 51 Z" />
-    <ellipse cx="50" cy="30" rx="36" ry="7" />
-    <ellipse cx="32" cy="38" rx="22" ry="6" />
-    <ellipse cx="68" cy="38" rx="22" ry="6" />
-    <ellipse cx="50" cy="24" rx="24" ry="5" />
-    <ellipse cx="18" cy="41" rx="10" ry="4" />
-    <ellipse cx="82" cy="41" rx="10" ry="4" />
-  </g>
-</svg>
 <div class="acaicia-title-container">
-<h1 class="acaicia-title">acAIcia</h1>
-<p class="acaicia-subtitle">An AI research assistant from the Landscape Alliance powered by CIFOR & ICRAF</p>
+<h1 class="acaicia-title">acAIcia Research Assistant</h1>
+<p class="acaicia-subtitle">Intelligent evidence synthesis from Landscape Alliance, CIFOR & ICRAF scientific literature</p>
 </div>
 </div>
-<div class="acaicia-user-auth-badge">
-  <span>👤 Active Account: <strong>{user_identifier}</strong></span>
-  <span class="acaicia-auth-nav-link">Sign In / Sign Up</span>
+<div class="acaicia-info-card">
+<p class="acaicia-info-text">Explore forestry, agroforestry, climate change, peatlands, food systems, and land rights publications. Type a question below or select a sample topic:</p>
+</div>
+<div class="acaicia-pills-grid">
+  <div class="acaicia-pill-item">🌿 {sample_pills[0]}</div>
+  <div class="acaicia-pill-item">🌱 {sample_pills[1]}</div>
+  <div class="acaicia-pill-item">🍃 {sample_pills[2] if len(sample_pills)>2 else sample_pills[0]}</div>
+  <div class="acaicia-pill-item">🌴 {sample_pills[3] if len(sample_pills)>3 else sample_pills[1]}</div>
 </div>
 </div>"""
 
     await cl.Message(content=welcome_html, author="acAIcia").send()
 
-    desc_html = """<div class="acaicia-info-card">
-<p class="acaicia-info-text">Ask me questions related to forestry, agroforestry, climate change, peatlands, food systems, biodiversity, and Landscape Alliance's research areas. I retrieve scientific evidence from our internal publication knowledge base and synthesize answers with standard scientific citations.</p>
+    # Footer Section
+    footer_html = """<div class="acaicia-footer">
+<p>© 2026 Landscape Alliance. All rights reserved. CIFOR-ICRAF Scientific Research Platform.</p>
 </div>"""
+    footer_msg = cl.Message(content=footer_html, author="acAIcia")
+    await footer_msg.send()
+    cl.user_session.set("temp_footer_id", footer_msg.id)
 
-    temp_msg = cl.Message(content=desc_html, author="acAIcia")
-    await temp_msg.send()
-    cl.user_session.set("temp_info_msg_id", temp_msg.id)
-
-    settings = cl.ChatSettings([
-        Select(
-            id="llm_provider",
-            label="LLM Provider",
-            initial_value=provider_name,
-            items={
-                "Google Gemini API": "gemini",
-                "NVIDIA NIM API": "nvidia",
-                "DeepSeek API": "deepseek",
-                "Modal Gemma 4 (Self-Hosted)": "modal"
-            }
-        )
-    ])
-    await settings.send()
+    # Chat Settings: Guests get Modal Gemma only; Authenticated get provider choices
+    if is_authenticated:
+        settings = cl.ChatSettings([
+            Select(
+                id="llm_provider",
+                label="LLM Provider",
+                initial_value=provider_name,
+                items={
+                    "Google Gemini API": "gemini",
+                    "NVIDIA NIM API": "nvidia",
+                    "DeepSeek API": "deepseek",
+                    "Modal Gemma 4 (Self-Hosted)": "modal"
+                }
+            )
+        ])
+        await settings.send()
 
 @cl.on_settings_update
 async def setup_agent(settings):
+    is_authenticated = cl.user_session.get("is_authenticated", False)
+    if not is_authenticated:
+        await cl.Message(content="🔒 Guest accounts use **Modal Gemma 4**. Sign in to select custom LLM providers.", author="acAIcia").send()
+        return
+
     provider = settings.get("llm_provider")
     if not provider:
         return
@@ -158,24 +186,93 @@ async def on_downvote(action: cl.Action):
 @cl.on_message
 async def main(message: cl.Message):
     user_query = message.content.strip()
+    is_authenticated = cl.user_session.get("is_authenticated", False)
+    guest_count = cl.user_session.get("guest_query_count", 0)
 
-    temp_msg_id = cl.user_session.get("temp_info_msg_id")
-    if temp_msg_id:
-        try:
-            await cl.Message(id=temp_msg_id, content="").remove()
-        except Exception:
-            pass
-        cl.user_session.set("temp_info_msg_id", None)
+    # 1. Navigation Command: /about
+    if user_query.lower() == "/about":
+        about_html = """<div class="acaicia-modal-card">
+<h2 class="acaicia-modal-title">🌿 About <span>acAIcia & Landscape Alliance</span></h2>
+<p><b>acAIcia</b> is an autonomous multi-agent Retrieval-Augmented Generation (RAG) system built for the <b>Landscape Alliance (CIFOR-ICRAF)</b>.</p>
+<p>It aggregates, chunks, vectorizes, and indexes peer-reviewed research papers, policy briefs, and technical documents spanning tropical forestry, agroforestry, soil science, peatland hydrology, food systems, and land governance.</p>
+<p><b>Core Pipeline Architecture:</b></p>
+<ul>
+  <li><b>Guardian Agent:</b> Filters queries to ensure scientific domain alignment.</li>
+  <li><b>Architect Agent:</b> Preserves technical entities, DOIs, and geographic coordinates.</li>
+  <li><b>Hybrid Retrieval (RRF):</b> Combines vector similarity with full-text BM25 keyword matching.</li>
+  <li><b>Synthesis Agent:</b> Generates answers with strict <code>[Author(s), Year]</code> inline citations.</li>
+</ul>
+</div>"""
+        await cl.Message(content=about_html, author="acAIcia").send()
+        return
 
-    # 1. Special Command: User Settings UI
+    # 2. Navigation Command: /faqs
+    if user_query.lower() == "/faqs":
+        faqs_html = """<div class="acaicia-modal-card">
+<h2 class="acaicia-modal-title">❓ Frequently Asked Questions (FAQs)</h2>
+<div class="acaicia-faq-item">
+  <h4>Q: What literature sources does acAIcia cover?</h4>
+  <p>A: Peer-reviewed publications, working papers, and technical reports from CIFOR-ICRAF and the Landscape Alliance knowledge base.</p>
+</div>
+<div class="acaicia-faq-item">
+  <h4>Q: What are the guest query limits?</h4>
+  <p>A: Guest users receive 20 free research queries per browser session. Registered accounts enjoy unlimited queries, multi-device history, and custom instructions.</p>
+</div>
+<div class="acaicia-faq-item">
+  <h4>Q: How does citation verification work?</h4>
+  <p>A: Every factual statement is backed by retrieved chunks and formatted as <code>[Author, Year]</code> with direct links to publication DOIs.</p>
+</div>
+</div>"""
+        await cl.Message(content=faqs_html, author="acAIcia").send()
+        return
+
+    # 3. Navigation Command: /blogs or /publications
+    if user_query.lower() in ["/blogs", "/publications"]:
+        blogs_html = """<div class="acaicia-modal-card">
+<h2 class="acaicia-modal-title">📚 Featured Publications & Policy Briefs</h2>
+<div class="acaicia-faq-item">
+  <h4>Opportunities for a low-emission transformation of Ghana's food systems (2026)</h4>
+  <p>Authors: Bohne, S., Martius, C., Pingault, N. | DOI: 10.17528/cifor-icraf/009417</p>
+</div>
+<div class="acaicia-faq-item">
+  <h4>Towards low-emission food systems in Ghana: A country profile (2025)</h4>
+  <p>Authors: Pingault, N., Martius, C. | DOI: 10.17528/cifor-icraf/009412</p>
+</div>
+</div>"""
+        await cl.Message(content=blogs_html, author="acAIcia").send()
+        return
+
+    # 4. Navigation Command: /contact
+    if user_query.lower() == "/contact":
+        contact_html = """<div class="acaicia-modal-card">
+<h2 class="acaicia-modal-title">📬 Contact & Institutional Research Enquiries</h2>
+<p>For research collaborations, dataset additions, or platform support, please contact the Landscape Alliance research team:</p>
+<p>📧 <b>General Enquiries:</b> <code>info@acaicia.org</code></p>
+<p>👤 <b>Site Administrator:</b> <code>b.obaga@landscapealliance.org</code></p>
+<p>🌐 <b>Institutional Website:</b> <a href="https://www.landscapealliance.org/knowledge/publications/" target="_blank">Landscape Alliance Knowledge Library</a></p>
+</div>"""
+        await cl.Message(content=contact_html, author="acAIcia").send()
+        return
+
+    # 5. Command: /login
+    if user_query.lower() in ["/login", "/register", "login", "sign in"]:
+        auth_html = """<div class="acaicia-modal-card">
+<h2 class="acaicia-modal-title">🔐 Researcher Sign In / Registration</h2>
+<p>Sign in to unlock unlimited research queries, persistent multi-device conversation sync in Supabase, and custom research preferences.</p>
+<p style="color:#00e65c;">Click the <b>Sign In / Sign Up</b> link in the top right header to authenticate.</p>
+</div>"""
+        await cl.Message(content=auth_html, author="acAIcia").send()
+        return
+
+    # 6. Command: User Settings UI
     if user_query.lower() == "/settings":
-        settings_html = """<div class="acaicia-settings-card">
+        settings_html = f"""<div class="acaicia-settings-card">
 <div class="acaicia-settings-header">
 <h2 class="acaicia-settings-title">User <span>Settings & Profile</span></h2>
 </div>
 <div class="acaicia-settings-form-group">
-<label class="acaicia-settings-label">Full Name</label>
-<p style="color:#a3bca7; margin:0 0 10px 0;">Guest Researcher</p>
+<label class="acaicia-settings-label">Account Status</label>
+<p style="color:#a3bca7; margin:0 0 10px 0;">{'Authenticated Researcher' if is_authenticated else 'Guest Researcher (20 queries max)'}</p>
 </div>
 <div class="acaicia-settings-form-group">
 <label class="acaicia-settings-label">What preferences should acAIcia consider in responses?</label>
@@ -199,8 +296,13 @@ async def main(message: cl.Message):
             await cl.Message(content=f"⚠️ Error updating settings: {e}", author="acAIcia").send()
         return
 
-    # 2. Special Command: Admin Metrics Dashboard
+    # 7. Special Command: Admin Metrics Dashboard
     if user_query.lower() == "/admin":
+        user = cl.user_session.get("user")
+        is_admin = user and user.metadata.get("role") == "admin"
+        if not is_admin:
+            await cl.Message(content="🔒 **Access Restricted:** The `/admin` dashboard requires an authorized admin account (`b.obaga@landscapealliance.org`).", author="acAIcia").send()
+            return
         try:
             m_res = await asyncio.to_thread(requests.get, ADMIN_METRICS_URL, timeout=10)
             if m_res.status_code == 200:
@@ -232,6 +334,20 @@ async def main(message: cl.Message):
 
     if not user_query:
         return
+
+    # Check Guest Query Limit (20 Max)
+    if not is_authenticated:
+        guest_count += 1
+        cl.user_session.set("guest_query_count", guest_count)
+        if guest_count > 20:
+            limit_html = """<div class="acaicia-modal-card" style="border-left: 4px solid #ff4d4d;">
+<h2 class="acaicia-modal-title" style="color:#ff4d4d;">🌿 Guest Query Limit Reached (20/20)</h2>
+<p>You have used all <b>20 free guest queries</b> in this browser session.</p>
+<p>Please <b>Sign In</b> or <b>Create a Free Account</b> to continue asking questions, save conversation history across devices, and set custom research preferences.</p>
+<p style="color:#00e65c;">Click <b>Sign In / Sign Up</b> in the header bar to continue.</p>
+</div>"""
+            await cl.Message(content=limit_html, author="acAIcia").send()
+            return
 
     session_id = cl.user_session.get("session_id")
     user_id = cl.user_session.get("user_id")

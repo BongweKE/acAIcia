@@ -5,7 +5,6 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
 }
 
-/* Custom CSS variables */
 :root {
     --primary-color: #2b5d34;
     --primary-light: #e2f0e5;
@@ -15,117 +14,152 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     --emerald-highlight: #00e65c;
 }
 
-/* Custom styling for acAIcia Welcome Card */
-.acaicia-welcome-card {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(245, 247, 245, 0.95) 100%);
-    border: 1px solid rgba(43, 93, 52, 0.15);
-    border-radius: 20px;
-    padding: 2rem;
-    max-width: 650px;
-    margin: 1.5rem auto;
-    box-shadow: 0 10px 40px rgba(43, 93, 52, 0.06);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    animation: slide-in 0.5s ease-out;
-}
-
-.dark .acaicia-welcome-card {
-    background: linear-gradient(135deg, rgba(23, 35, 26, 0.95) 0%, rgba(15, 24, 17, 0.95) 100%);
-    border: 1px solid rgba(63, 169, 97, 0.2);
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-}
-
-.acaicia-welcome-header {
-    display: flex;
-    align-items: center;
-    gap: 1.25rem;
-    margin-bottom: 1.25rem;
-}
-
-.acaicia-user-auth-badge {
+/* TOP NAVIGATION HEADER BAR */
+.acaicia-top-nav {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 16px;
-    background: rgba(43, 93, 52, 0.06);
-    border: 1px solid rgba(43, 93, 52, 0.12);
-    border-radius: 12px;
-    font-size: 0.9rem;
-    color: #4a5d4e;
-    margin-top: 1rem;
+    padding: 12px 24px;
+    background: rgba(6, 23, 13, 0.9);
+    border-bottom: 1px solid rgba(0, 230, 92, 0.15);
+    border-radius: 14px;
+    margin-bottom: 1rem;
+    backdrop-filter: blur(10px);
 }
 
-.dark .acaicia-user-auth-badge {
-    background: rgba(63, 169, 97, 0.08);
-    border-color: rgba(63, 169, 97, 0.2);
-    color: #a3bca7;
+.acaicia-nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
 
-.acaicia-auth-nav-link {
-    font-weight: 700;
-    color: var(--accent-color);
-    cursor: pointer;
-    background: rgba(21, 170, 91, 0.1);
-    padding: 4px 12px;
-    border-radius: 8px;
-    transition: all 0.2s ease;
+.acaicia-nav-logo {
+    fill: var(--emerald-highlight);
 }
 
-.acaicia-auth-nav-link:hover {
-    background: var(--accent-color);
+.acaicia-nav-title {
+    font-size: 1.35rem;
+    font-weight: 800;
     color: #ffffff;
 }
 
-.dark .acaicia-auth-nav-link {
-    color: var(--emerald-highlight);
-    background: rgba(0, 230, 92, 0.12);
+.acaicia-nav-links {
+    display: flex;
+    gap: 20px;
 }
 
-.dark .acaicia-auth-nav-link:hover {
-    background: var(--emerald-highlight);
-    color: #06170d;
-}
-
-.acaicia-logo-svg {
-    width: 64px;
-    height: 64px;
-    filter: drop-shadow(0 2px 10px rgba(43, 93, 52, 0.25));
-    animation: float 4s ease-in-out infinite;
-}
-
-.acacia-fill {
-    fill: var(--primary-color);
-}
-
-.dark .acacia-fill {
-    fill: #ffffff;
-}
-
-.acaicia-title {
-    font-size: 2.25rem;
-    font-weight: 800;
-    color: var(--primary-color) !important;
-    margin: 0;
-    line-height: 1;
-}
-
-.dark .acaicia-title {
-    color: #3fa961 !important;
-}
-
-.acaicia-subtitle {
-    font-size: 1rem;
-    color: #4a5d4e;
-    margin: 6px 0 0 0;
+.acaicia-nav-item {
+    font-size: 0.9rem;
     font-weight: 600;
-}
-
-.dark .acaicia-subtitle {
     color: #a3bca7;
+    cursor: pointer;
+    transition: color 0.2s ease;
 }
 
-/* Citations & Source Items */
+.acaicia-nav-item:hover {
+    color: var(--emerald-highlight);
+}
+
+.acaicia-nav-auth-btn {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--emerald-highlight);
+    background: rgba(0, 230, 92, 0.1);
+    border: 1px solid rgba(0, 230, 92, 0.25);
+    padding: 6px 14px;
+    border-radius: 20px;
+}
+
+/* WELCOME CARD & PROMPT PILLS GRID */
+.acaicia-welcome-card {
+    background: linear-gradient(135deg, rgba(23, 35, 26, 0.95) 0%, rgba(15, 24, 17, 0.95) 100%);
+    border: 1px solid rgba(63, 169, 97, 0.2);
+    border-radius: 20px;
+    padding: 2rem;
+    max-width: 800px;
+    margin: 1rem auto;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.acaicia-pills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    margin-top: 1.25rem;
+}
+
+.acaicia-pill-item {
+    background: rgba(63, 169, 97, 0.08);
+    border: 1px solid rgba(63, 169, 97, 0.2);
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 0.88rem;
+    color: #d1e3d4;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.acaicia-pill-item:hover {
+    background: rgba(0, 230, 92, 0.15);
+    border-color: var(--emerald-highlight);
+    color: #ffffff;
+}
+
+/* INTERACTIVE CONTENT MODALS */
+.acaicia-modal-card {
+    background: #06170d;
+    border: 1px solid rgba(0, 230, 92, 0.2);
+    border-radius: 20px;
+    padding: 1.75rem 2rem;
+    max-width: 800px;
+    margin: 1.25rem auto;
+    color: #e2f0e5;
+    box-shadow: 0 16px 50px rgba(0, 0, 0, 0.5);
+}
+
+.acaicia-modal-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin-top: 0;
+    margin-bottom: 1rem;
+}
+
+.acaicia-modal-title span {
+    color: var(--emerald-highlight);
+}
+
+.acaicia-faq-item {
+    background: rgba(14, 43, 27, 0.6);
+    border: 1px solid rgba(0, 230, 92, 0.15);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.acaicia-faq-item h4 {
+    margin: 0 0 6px 0;
+    color: var(--emerald-highlight);
+    font-size: 1.05rem;
+}
+
+.acaicia-faq-item p {
+    margin: 0;
+    color: #a3bca7;
+    font-size: 0.9rem;
+}
+
+/* FOOTER SECTION */
+.acaicia-footer {
+    text-align: center;
+    padding: 1rem 0;
+    margin-top: 2rem;
+    border-top: 1px solid rgba(0, 230, 92, 0.12);
+    color: #6b8770;
+    font-size: 0.85rem;
+}
+
+/* SOURCES & CITATIONS */
 .source-container {
     margin-top: 1.5rem;
     border-top: 1px solid rgba(43, 93, 52, 0.15);
@@ -135,52 +169,30 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
 .source-header-title {
     font-weight: 700;
     font-size: 1.15rem;
-    color: var(--primary-color);
-    margin-bottom: 0.85rem;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.dark .source-header-title {
     color: #3fa961;
+    margin-bottom: 0.85rem;
 }
 
 .source-item {
-    background: rgba(251, 251, 250, 0.7);
-    border: 1px solid #eae7e0;
-    border-left: 4px solid var(--primary-color);
+    background: rgba(23, 35, 26, 0.4);
+    border: 1px solid rgba(63, 169, 97, 0.15);
+    border-left: 4px solid #3fa961;
     border-radius: 10px;
     padding: 1rem 1.25rem;
     margin-bottom: 0.85rem;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.dark .source-item {
-    background: rgba(23, 35, 26, 0.4);
-    border-color: rgba(63, 169, 97, 0.15);
-    border-left-color: #3fa961;
 }
 
 .source-title {
     font-weight: 650;
-    color: var(--primary-color);
+    color: #4ade80;
     font-size: 1.05rem;
     margin-bottom: 6px;
 }
 
-.dark .source-title {
-    color: #4ade80;
-}
-
 .source-authors {
-    color: #4a5568;
+    color: #a3bca7;
     font-size: 0.9rem;
     margin-bottom: 8px;
-}
-
-.dark .source-authors {
-    color: #a3bca7;
 }
 
 .source-links a {
@@ -189,8 +201,8 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
 }
 
-/* SETTINGS UI */
-.acaicia-settings-card {
+/* SETTINGS & ADMIN */
+.acaicia-settings-card, .acaicia-admin-container {
     background: #06170d;
     border: 1px solid rgba(0, 230, 92, 0.2);
     border-radius: 20px;
@@ -198,142 +210,40 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
     max-width: 800px;
     margin: 1.5rem auto;
     color: #e2f0e5;
-    box-shadow: 0 16px 50px rgba(0, 0, 0, 0.5);
-}
-
-.acaicia-settings-header {
-    border-bottom: 1px solid rgba(0, 230, 92, 0.15);
-    padding-bottom: 1rem;
-    margin-bottom: 1.5rem;
-}
-
-.acaicia-settings-title {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: #ffffff;
-    margin: 0;
-}
-
-.acaicia-settings-title span {
-    color: var(--emerald-highlight);
-}
-
-.acaicia-settings-form-group {
-    margin-bottom: 1.25rem;
-}
-
-.acaicia-settings-label {
-    display: block;
-    font-weight: 600;
-    font-size: 0.95rem;
-    color: #cddbcf;
-    margin-bottom: 6px;
-}
-
-/* IN-CHAT FEEDBACK ACTIONS */
-.acaicia-feedback-actions {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 1rem;
-    padding-top: 0.75rem;
-    border-top: 1px dashed rgba(43, 93, 52, 0.15);
-}
-
-.dark .acaicia-feedback-actions {
-    border-top-color: rgba(63, 169, 97, 0.15);
-}
-
-.acaicia-feedback-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(43, 93, 52, 0.06);
-    border: 1px solid rgba(43, 93, 52, 0.15);
-    border-radius: 8px;
-    padding: 6px 12px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--primary-color);
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.dark .acaicia-feedback-btn {
-    background: rgba(63, 169, 97, 0.08);
-    border-color: rgba(63, 169, 97, 0.2);
-    color: #4ade80;
-}
-
-/* ADMIN DASHBOARD */
-.acaicia-admin-container {
-    max-width: 900px;
-    margin: 1.5rem auto;
-    background: rgba(255, 255, 255, 0.95);
-    border: 1px solid rgba(43, 93, 52, 0.2);
-    border-radius: 20px;
-    padding: 2rem;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.05);
-}
-
-.dark .acaicia-admin-container {
-    background: #06170d;
-    border-color: rgba(0, 230, 92, 0.2);
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
 }
 
 .acaicia-admin-title {
+    color: var(--emerald-highlight);
     font-size: 1.75rem;
     font-weight: 800;
-    color: var(--primary-color);
-    margin-bottom: 1.5rem;
-}
-
-.dark .acaicia-admin-title {
-    color: var(--emerald-highlight);
 }
 
 .acaicia-admin-metrics-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 1.25rem;
     margin-bottom: 2rem;
 }
 
 .acaicia-admin-card {
-    background: rgba(43, 93, 52, 0.04);
-    border: 1px solid rgba(43, 93, 52, 0.12);
+    background: #0e2b1b;
+    border: 1px solid rgba(0, 230, 92, 0.2);
     border-radius: 14px;
     padding: 1.25rem;
     text-align: center;
 }
 
-.dark .acaicia-admin-card {
-    background: #0e2b1b;
-    border-color: rgba(0, 230, 92, 0.2);
-}
-
 .acaicia-admin-card-val {
     font-size: 2rem;
     font-weight: 800;
-    color: var(--primary-color);
-}
-
-.dark .acaicia-admin-card-val {
     color: var(--emerald-highlight);
 }
 
 .acaicia-admin-card-lbl {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #4a5d4e;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-top: 4px;
-}
-
-.dark .acaicia-admin-card-lbl {
     color: #a3bca7;
+    text-transform: uppercase;
 }
 
 .acaicia-latency-bar-container {
@@ -351,6 +261,6 @@ body, button, input, textarea, div, span, p, h1, h2, h3, h4, h5, h6 {
 }
 
 .acaicia-latency-label {
-    width: 120px;
+    width: 130px;
     font-weight: 600;
 }

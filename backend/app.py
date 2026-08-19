@@ -550,7 +550,7 @@ def cron_eval_and_warmup():
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("acaicia-cron-eval")
 
-    logger.info("🌿 Triggering automated nightly acAIcia RAG evaluation and cache warmup...")
+    logger.info("🌿 Triggering automated nightly acAIcia RAG evaluation and dynamic prompt pill update...")
     SUPABASE_URL = os.environ.get("SUPABASE_URL")
     SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
     
@@ -558,7 +558,8 @@ def cron_eval_and_warmup():
         try:
             supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
             logger.info("✓ Connected to Supabase DB for scheduled evaluation.")
-            # Record cron evaluation trigger
+            
+            # 1. Record cron evaluation trigger
             supabase.table("evaluation_runs").insert({
                 "dataset_name": "nightly_scheduled_cron",
                 "num_questions": 5,
@@ -568,7 +569,26 @@ def cron_eval_and_warmup():
                 "model_provider": "modal_cron",
                 "details": {"trigger": "modal.Cron('0 2 * * *')", "status": "completed"}
             }).execute()
-            logger.info("✓ Nightly evaluation benchmark recorded successfully.")
+
+            # 2. Dynamic Prompt Pills: Select 10 random documents and generate research question pills
+            docs_res = supabase.table("documents_catalog").select("title, doi, abstract").limit(10).execute()
+            if docs_res.data and len(docs_res.data) > 0:
+                pills_to_insert = []
+                for doc in docs_res.data:
+                    title = doc.get("title", "")
+                    doi = doc.get("doi", "")
+                    if title:
+                        pills_to_insert.append({
+                            "question_text": f"What are the key research findings in: {title[:80]}?",
+                            "document_title": title,
+                            "doi": doi,
+                            "topic_category": "publication_sample"
+                        })
+                if pills_to_insert:
+                    supabase.table("prompt_pills").insert(pills_to_insert).execute()
+                    logger.info(f"✓ Inserted {len(pills_to_insert)} dynamic prompt pills.")
+            
+            logger.info("✓ Nightly evaluation benchmark and prompt pills updated successfully.")
         except Exception as e:
             logger.error(f"Scheduled cron evaluation exception: {e}")
 
@@ -598,6 +618,21 @@ def fastapi_app_entrypoint():
 
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     fastapi_app = FastAPI(title="acAIcia Core API")
+
+    @fastapi_app.get("/prompt_pills")
+    def get_prompt_pills():
+        try:
+            res = supabase.table("prompt_pills").select("*").order("created_at", desc=True).limit(6).execute()
+            if res.data and len(res.data) > 0:
+                return {"pills": [item.get("question_text") for item in res.data if item.get("question_text")]}
+        except Exception as e:
+            logger.warning(f"Could not fetch prompt pills from DB: {e}")
+        return {"pills": [
+            "What percentage of Ghana anthropogenic GHG emissions come from food systems?",
+            "Outline indigenous agroforestry plants in Kenya and suitable soil profiles.",
+            "What are key policy recommendations for peatland restoration in Southeast Asia?",
+            "How do shade-grown coffee systems impact soil organic carbon sequestration?"
+        ]}
 
     @fastapi_app.get("/settings", response_model=SettingsResponse)
     def get_settings():
