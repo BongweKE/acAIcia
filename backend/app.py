@@ -506,14 +506,16 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
 
         if results and synth_text:
             try:
+                raw_emb = embed_model.encode([user_query], convert_to_numpy=True)[0].tolist()
+                clean_emb = [float(x) for x in raw_emb]
                 supabase.table("semantic_cache").insert({
                     "query_text": user_query,
-                    "query_embedding": query_embedding,
+                    "query_embedding": clean_emb,
                     "response_text": synth_text.strip(),
                     "sources": sources
                 }).execute()
-            except Exception:
-                pass
+            except Exception as cache_ins_err:
+                logger.warning(f"Failed to insert into semantic cache: {cache_ins_err}")
 
         for rank_idx, r in enumerate(results):
             try:
