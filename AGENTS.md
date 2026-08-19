@@ -124,3 +124,18 @@ The backend query engine (`backend/app.py`) executes an asynchronous 4-stage pip
 1. **Zero Hardcoded Secrets**: All secret keys (`SUPABASE_KEY`, `GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `DEEPSEEK_API_KEY`) are managed via Modal Secrets or Railway environment settings.
 2. **CORS Policy**: Backend FastAPI configured with `CORSMiddleware` to allow requests from Railway and Modal frontend origins.
 3. **Git Hygiene**: `.gitignore` excludes `node_modules/`, `dist/`, `.agents/`, `.env`, `.venv`, and temporary logs.
+
+---
+
+## 🧠 Developer & Agent Guidelines (Holistic Architecture & Documentation Rule)
+
+1. **Holistic Architectural Scoping**:
+   - All code updates must consider the end-to-end system architecture (Vite + React 18 SPA frontend, Modal serverless multi-agent backend, FastAPI endpoints, Supabase database, and Railway deployment).
+   - Never implement isolated symptom patches that break API contracts, CORS headers, multi-turn chat sessions, or RBAC controls.
+
+2. **Continuous Documentation Integrity**:
+   - Whenever updating features, backend endpoints, frontend components, or deployment scripts, **immediately update the corresponding documentation files** in `docs/` (`architecture.md`, `frontend.md`, `deployment_guide.md`, `backend_agents.md`, `database_schema.md`) and `AGENTS.md`.
+   - Ensure `README.md` accurately links to the updated documentation.
+
+3. **Verification Before Declaration**:
+   - Always run static verification (`tsc --noEmit` and `npm run build`) and test suites before declaring tasks resolved.

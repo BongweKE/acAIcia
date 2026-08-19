@@ -2,46 +2,47 @@
 
 [← Back to README](../README.md)
 
-The acAIcia frontend is built using **Chainlit** (`frontend/app.py`), customized with a forest dark-mode theme (`#06170d` background, `#0e2b1b` cards, `#00e65c` emerald highlights) matching CIFOR-ICRAF branding.
+The acAIcia frontend is a modern **Vite + React 18 + TypeScript + Tailwind CSS** application (`frontend/`), customized with a forestry dark-mode theme (`#0F291E` background, emerald glassmorphism cards, `#10B981` accents) matching Landscape Alliance branding.
 
 ---
 
-## User Settings & Profile Customization Guide
+## 🏛️ Component & Context Structure
 
-Users can view and configure custom research instructions that get automatically injected into Synthesis prompts across chats.
-
-### Commands & Controls
-- **View Settings:** Type `/settings` in the chat composer to open the User Settings & Profile panel.
-- **Set Custom Research Instructions:** Type `/set_instructions [your custom instruction here]` in the chat.
-  - *Example:* `/set_instructions Focus on agroforestry policy briefs and quantitative metrics in East Africa.`
-- **Backend Integration:** Active instructions are saved to `user_profiles` table via `/user/settings` API and automatically applied to Synthesis prompts.
-
----
-
-## In-Chat Response Feedback Guide
-
-Every synthesized answer card includes interactive action buttons:
-- **`👍 Useful` (Upvote):** Logs a positive rating (+1) for the response in `query_feedback`.
-- **`👎 Needs Work` (Downvote):** Logs a negative rating (-1) for quality analysis and evaluation.
+- **Context Providers (`frontend/src/context/`)**:
+  - `AuthContext`: Manages user authentication, role assignment (`guest`, `researcher`, `admin`), login modal state, and guest 20-query limit.
+  - `ChatContext`: Manages chat messages, research prompt pills, RAG status stage polling, feedback modal state, and persistent multi-session chat history stored in `localStorage`.
+  - `SettingsContext`: Handles LLM provider selection (Modal Gemma 4 for guests; Gemini 2.5 Flash, NVIDIA Llama 3.3 70B, DeepSeek Reasoner for researchers) and custom instructions.
+  - `ToastContext`: Provides global UI notification toasts.
+- **Pages (`frontend/src/pages/`)**:
+  - `ChatPage`: Main RAG research chat interface with prompt pills, stage progress indicators, source cards with DOIs, and inline `[Author, Year]` citations.
+  - `AdminPage`: Administrator observability dashboard with telemetry, P50/P95 latencies, stage timing breakdowns, user satisfaction metrics, and evaluation benchmark tables.
+  - `InfoPage`: Dedicated views for About acAIcia, FAQs, Research Blogs, and Contact details.
 
 ---
 
-## Admin Observability Dashboard Guide
+## 💬 Multi-Session Chat & User Customization Guide
 
-Administrators can access real-time system performance and RAG metrics directly in the chat interface:
-- **Command:** Type `/admin` in the chat composer.
-- **Metrics Displayed:**
-  - Total queries processed & Cache Hit Rate %.
-  - p95 End-to-End Latency.
-  - User Satisfaction % (+1 / -1 ratio).
-  - Per-stage latency breakdown bars (Guardian, Architect, Hybrid Retrieval, Synthesis).
-  - Historical RAG evaluation benchmark run results (`evaluation_runs`).
+### 1. Multi-Session Management
+- **`+ New Research Chat` Button**: Click in the sidebar to start a new chat session with a fresh `session_id`.
+- **Recent Chats List**: Access and switch between past chat sessions directly in the sidebar. Sessions persist across browser reloads via `localStorage`.
+
+### 2. User Settings & Custom Synthesis Instructions
+- Click **Settings** in the header or user profile panel.
+- **Provider Selector**: Authenticated researchers can choose between Gemini 2.5 Flash, NVIDIA Llama 3.3, and DeepSeek Reasoner.
+- **Custom Synthesis Instructions**: Save custom preferences (e.g., *"Focus on East Africa agroforestry policy briefs and quantitative metrics"*), automatically applied to Synthesis prompts via `POST /user/settings`.
 
 ---
 
-## Visual Styling
-Custom CSS is configured in `frontend/public/style.css`. Key style components include:
-- `.acaicia-welcome-card`: Forest gradient card with logo SVG.
-- `.acaicia-settings-card`: Dark emerald profile settings container.
-- `.acaicia-feedback-actions` & `.acaicia-feedback-btn`: Styled upvote/downvote buttons.
-- `.acaicia-admin-container` & `.acaicia-latency-bar`: Observability dashboard cards and latency tracks.
+## 👍 In-Chat Response Feedback Guide
+
+Every synthesized response includes interactive feedback actions:
+- **`👍` Upvote**: Submits a positive rating (+1) to `POST /feedback`.
+- **`👎` Downvote**: Opens a correction modal to log negative ratings and text feedback to `POST /feedback` for evaluation.
+
+---
+
+## 📊 Admin Observability Dashboard Guide
+
+Administrators (`role === 'admin'`) can access real-time system performance and telemetry:
+- **Navigation**: Click **Admin Dashboard** in the sidebar navigation or visit `/admin`.
+- **Metrics Displayed**: Total queries, cache hit %, P50/P95 latency, stage latency breakdown (Guardian, Architect, Retrieval, Synthesis), user satisfaction ratio, and historical RAG evaluation runs.
