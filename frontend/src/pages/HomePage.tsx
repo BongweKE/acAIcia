@@ -101,7 +101,7 @@ export const HomePage: React.FC = () => {
             <div className="max-w-2xl">
               <div className="acaicia-fade-up flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.22em] text-accent font-semibold">
                 <span className="h-px w-8 bg-accent" />
-                Agriscience, made clearer
+                Powered by CIFOR & ICRAF
               </div>
               <h1 className="acaicia-fade-up acaicia-fade-up-delay-1 mt-6 max-w-2xl font-serif text-5xl font-medium leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-[5.5rem]">
                 Ask better questions. Find evidence you can use.

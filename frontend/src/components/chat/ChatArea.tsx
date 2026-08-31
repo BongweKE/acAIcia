@@ -7,7 +7,7 @@ import { StatusIndicator } from './StatusIndicator';
 import { FeedbackModal } from '../feedback/FeedbackModal';
 import { SettingsModal } from '../settings/SettingsModal';
 import { ChatHistoryDrawer } from './ChatHistoryDrawer';
-import { Send, Cpu, Plus, History, MessageSquare } from 'lucide-react';
+import { Send, Cpu, Plus, History, MessageSquare, AlertTriangle } from 'lucide-react';
 
 export const ChatArea: React.FC = () => {
   const { messages, submitUserQuery, isProcessing, currentStage, sessions, activeSessionId, createNewSession } = useChat();
@@ -102,11 +102,16 @@ export const ChatArea: React.FC = () => {
 
       {/* Input Dock */}
       <div className="shrink-0 pt-3 space-y-2 border-t border-border mt-4">
-        {/* Active Model Display Pill */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+        {/* Active Model & Fact Check Warning Row */}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground px-1">
           <div className="flex items-center gap-1.5 bg-muted px-2.5 py-1 rounded-md border border-border">
             <Cpu className="w-3.5 h-3.5 text-accent" />
             <span>Active Model: <strong className="text-foreground">{activeModelName}</strong></span>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
+            <AlertTriangle className="w-3.5 h-3.5 text-chart-4 shrink-0" />
+            <span>AI-generated responses should be fact-checked before decision making</span>
           </div>
         </div>
 
@@ -133,6 +138,10 @@ export const ChatArea: React.FC = () => {
             </button>
           </div>
         </form>
+
+        <p className="text-[11px] text-center text-muted-foreground/75 pt-0.5">
+          acAIcia synthesises peer-reviewed literature. Verify critical research details and DOIs before field application.
+        </p>
       </div>
 
       {/* Global Modals & Drawers */}
