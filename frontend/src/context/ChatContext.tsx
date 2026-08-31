@@ -350,6 +350,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await client.submitQuery({
         query: trimmed,
         session_id: targetSessionId,
+        user_id: user?.email || undefined,
         guest_session_id: guestSessionId,
         conversation_history: history,
       });

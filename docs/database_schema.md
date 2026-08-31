@@ -145,6 +145,7 @@ erDiagram
         text query_text
         vector_768 query_embedding
         text stored_embedding_text
+        text topic_category
         text response_text
         jsonb sources
     }
@@ -169,8 +170,8 @@ Combines dense vector similarity (`<=> query_embedding`) with PostgreSQL full-te
 $$\text{RRF Score} = \frac{1}{k + r_{\text{vector}}} + \frac{1}{k + r_{\text{text}}}$$
 This function ensures exact matches on DOIs, species names, dates, and geographic locations are ranked highest.
 
-### 2. `match_semantic_cache`
-Queries `semantic_cache` using HNSW cosine distance (`1 - (query_embedding <=> cache_embedding)`). If similarity >= 0.95, returns stored answer and citations instantly.
+### 2. `match_semantic_cache` (Python Cosine Similarity + Topic Guard)
+Evaluates `semantic_cache` using raw user query vector cosine similarity ($\ge 0.98$) and domain `topic_category` scoping. If similarity $\ge 0.98$ within the same research topic, returns stored answer and citations in <50ms.
 
 ### 3. `get_analytics_timeseries` (Parametric Daily Time-Series)
 Aggregates query volume, cache hits, latencies, tokens, and estimated USD costs filtered by start date, end date, topic, provider, and query type.
@@ -191,4 +192,5 @@ Run SQL migrations in order in your Supabase SQL Editor:
 - [001_add_auth_and_telemetry.sql](../database_schema.sql) — User profiles, conversation history, telemetry, RRF retrieval.
 - [002_fix_semantic_cache.sql](../database/migrations/002_fix_semantic_cache.sql) — Add comma-separated embedding text representation.
 - [003_advanced_analytics.sql](../database/migrations/003_advanced_analytics.sql) — Analytics schema, topic taxonomy, cost tracking, RAGAS scores, alerts, and views.
+- [004_fix_semantic_cache_topic_guard.sql](../database/migrations/004_fix_semantic_cache_topic_guard.sql) — Add domain topic category isolation to semantic cache, set similarity threshold to 0.98, and align raw query vector storage.
 

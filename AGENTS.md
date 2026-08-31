@@ -72,7 +72,8 @@ The backend query engine (`backend/app.py`) executes an asynchronous 4-stage pip
 - **User Customization**: Appends active user custom instructions from profile settings to tailor synthesis formatting.
 
 ### 5. Semantic Cache Subsystem ⚡
-- **Behavior**: Stores query embeddings and answers in `semantic_cache` table (similarity match threshold >= 0.95).
+- **Behavior**: Stores raw user query embeddings and answers in `semantic_cache` table with domain topic tagging (`topic_category`).
+- **Matching Criteria**: Requires similarity threshold >= 0.98 and matching domain `topic_category` to prevent cross-domain cache contamination. Always stores and compares the raw user query embedding (`user_query`), never the Architect's expanded search query embedding.
 - **Context Guard**: Checked **only for standalone single-turn queries** (`if not conversation_history`). Multi-turn conversation sessions bypass semantic cache to maintain conversation session context.
 
 ---

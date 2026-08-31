@@ -22,7 +22,7 @@ sequenceDiagram
     UI->>BP: POST /query (payload: {query, user_id, session_id})
     
     %% Step 0: Semantic Cache Check
-    BP->>Cache: Vector Cosine Lookup (threshold >= 0.95)
+    BP->>Cache: Vector Cosine Lookup (threshold >= 0.98 + topic_category guard)
     alt Cache Hit (<50ms)
         Cache-->>BP: Return pre-computed answer & sources
         BP-->>UI: Return instant response (⚡ Fast Cache Hit)
@@ -40,7 +40,7 @@ sequenceDiagram
             AA-->>BP: Return optimized search string
             
             %% Step 3: Hybrid Retrieval (Dense Vector + Full-Text RRF)
-            BP->>BP: Local BAAI/bge-base-en-v1.5 embedding calculation
+            BP->>BP: Local BAAI/bge-base-en-v1.5 embedding calculation for optimized_query
             BP->>DB: Execute RPC 'match_documents_hybrid' (Vector + TSVECTOR RRF)
             DB-->>BP: Return top 5 relevant document chunks
             BP-)Tel: Log chunk scores to query_chunk_logs
@@ -51,7 +51,7 @@ sequenceDiagram
             SA-->>BP: Return answer text + sources array
             
             %% Save to Cache & Telemetry
-            BP->>Cache: Save query embedding & response to semantic_cache
+            BP->>Cache: Save RAW user_query embedding, topic_category & response to semantic_cache
             BP-->>UI: Return JSON Payload + In-Chat Feedback Actions
             BP-)Tel: Log stage timings (guardian_ms, architect_ms, retrieval_ms, synthesis_ms)
         end
@@ -74,7 +74,7 @@ sequenceDiagram
 - **Permissive Stance:** Adopts a permissive rule allowing all natural science, environmental management, geography, and policy queries while rejecting only explicit spam or malicious prompts.
 
 ### 2. Architect Agent (Query Reformulation)
-- **Entity Preservation Rule:** Instructed to strictly preserve exact geographic entities (*Pulang Pisau*, *South Sumatra*, *Ghana*), DOIs, acronyms (*ASEAN*, *GHG*), dates/years, and quantitative terms (*78.5 cm*, *204,517*) to maximize Reciprocal Rank Fusion (RRF) search accuracy.
+- **Entity Preservation Rule:** Instructed to strictly preserve exact geographic entities (*Pulang Pisau*, *South Sumatra*, *Ghana*), DOIs, acronyms (*ASEAN*, *REDD+*), dates/years, and quantitative terms (*78.5 cm*, *204,517*) to maximize Reciprocal Rank Fusion (RRF) search accuracy.
 
 ### 3. Synthesis Agent (Answer Generation & Personalization)
 - **User Preference Injection:** Dynamically appends user custom research instructions from settings into the prompt context.
@@ -82,8 +82,13 @@ sequenceDiagram
 
 ---
 
-## Semantic Response Caching
-Incoming queries are converted to vector embeddings and queried against `semantic_cache`. Queries matching existing entries with a cosine similarity >= 0.95 bypass the Guardian, Architect, and LLM Synthesis agents, returning stored answers in <50ms with `cache_hit: true` telemetry tags.
+## Semantic Response Caching Subsystem
+
+Incoming single-turn queries undergo vector similarity matching against `semantic_cache`:
+1. **Raw Vector Alignment**: Embeddings are computed directly from `user_query` (never from Query Architect's `optimized_query`).
+2. **Domain Topic Isolation Guard**: Cache lookup enforces matching `topic_category` (e.g., `fire_management` queries only match cached items tagged with `fire_management`).
+3. **Threshold Calibration**: Matches require cosine similarity $\ge 0.98$.
+4. **Session Guard**: Checked **only for standalone single-turn queries** (`if not conversation_history`). Multi-turn conversation sessions bypass semantic cache to maintain conversation session context.
 
 ---
 

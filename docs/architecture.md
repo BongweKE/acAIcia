@@ -14,7 +14,7 @@ flowchart TD
     UI <-->|REST API JSON + CORS /query, /settings, /user/settings, /feedback, /admin/metrics| API[Modal FastAPI Backend]
     
     %% Semantic Cache check
-    API <-->|Single-Turn Only: Vector Cosine Sim >= 0.95| Cache[(Semantic Response Cache)]
+    API <-->|Single-Turn Only: Topic Guard + Vector Cosine Sim >= 0.98| Cache[(Semantic Response Cache)]
     
     %% Hybrid Retrieval
     API <-->|Hybrid Search RRF: pgvector + TSVECTOR| DB[(Supabase Postgres DB)]
@@ -46,8 +46,10 @@ flowchart TD
    - **Guest Session Mode:** Immediate access without login with local 20-query count limit.
    - **Persistent Multi-Session History:** `localStorage` backed session management (`+ New Research Chat`, switching between sessions, session deletion) both for guests and researchers.
    - **Authenticated Researcher Mode:** Role-based access control unlocking custom LLM provider selection (Gemini, NVIDIA, DeepSeek) and custom synthesis instructions.
-2. **Context-Aware Semantic Response Caching:**
-   - Vector similarity search (`semantic_cache`) returning instant answers (<50ms) for repeat or near-identical queries (similarity >= 0.95).
+2. **Domain-Bounded Semantic Response Caching:**
+   - Vector similarity search (`semantic_cache`) returning instant answers (<50ms) for repeat or near-identical queries (similarity >= 0.98).
+   - **Domain Topic Guard:** Queries must belong to the exact same research domain (`topic_category`) to prevent cross-domain cache contamination (ADR 0007).
+   - **Vector Space Alignment:** Stores and matches raw user query embeddings (`user_query`), bypassing Query Architect query expansion vectors.
    - **Session Context Guard:** Evaluated **only for standalone single-turn queries** (`if not conversation_history`). Multi-turn chat sessions bypass semantic cache to maintain conversational context.
 3. **Hybrid Search (Dense pgvector + Sparse Full-Text RRF):**
    - Reciprocal Rank Fusion (`match_documents_hybrid` RPC) combining dense vector embeddings (`BAAI/bge-base-en-v1.5`) with PostgreSQL `to_tsvector` text search.

@@ -8,7 +8,7 @@ export const AboutPage: React.FC = () => {
     <AcaiciaPageShell
       eyebrow="Mission & Organization"
       title="Empowering field decisions with open evidence."
-      description="acAIcia is developed for Landscape Alliance (formerly CIFOR-ICRAF) to bridge the gap between scientific publications and frontline agricultural decision-making."
+      description="acAIcia is developed for Landscape Alliance to bridge the gap between scientific publications and frontline agricultural decision-making."
     >
       <div className="mx-auto max-w-7xl px-6 py-16 lg:px-10 lg:py-24">
         {/* Core Pillars */}
@@ -50,7 +50,7 @@ export const AboutPage: React.FC = () => {
             <Award className="h-4 w-4 text-accent" /> Landscape Alliance
           </div>
           <h2 className="mt-4 font-serif text-3xl font-medium tracking-tight">
-            About Landscape Alliance (formerly CIFOR-ICRAF)
+            About Landscape Alliance
           </h2>
           <p className="mt-4 text-base leading-7 text-muted-foreground">
             The Center for International Forestry Research (CIFOR) and World Agroforestry (ICRAF) joined forces as Landscape Alliance to deliver actionable science-based solutions to climate change, deforestation, biodiversity loss, and rural poverty. acAIcia serves as an intelligent research gateway for scientists, development partners, and policy specialists.

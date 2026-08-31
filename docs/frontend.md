@@ -17,7 +17,7 @@ The acAIcia frontend is a modern **Vite 5 + React 18 + TypeScript + React Router
   - `HomePage`: Scrollable landing page matching design mockup (Hero + Assistant Card, Answer Preview, How it Works, About).
   - `AssistantPage`: Dedicated RAG research chat interface with prompt pills, stage progress indicators, source cards with DOIs, and inline `[Author, Year]` citations.
   - `HowItWorksPage`: Architectural pipeline breakdown (Guardian, Architect, Hybrid Retrieval, Synthesis Engine) and scientific citation protocol.
-  - `AboutPage`: Mission and Landscape Alliance (formerly CIFOR-ICRAF) background.
+  - `AboutPage`: Mission and Landscape Alliance background.
   - `FeedbackPage`: Dedicated citation feedback and correction submission page.
   - `AdminPage`: Administrator observability dashboard with telemetry, P50/P95 latencies, stage timing breakdowns, user satisfaction metrics, evaluation benchmark tables, and global LLM model selection.
 

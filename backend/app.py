@@ -262,7 +262,7 @@ def _get_cached_embed_model(logger=None):
     timeout=600
 )
 @modal.concurrent(max_inputs=16)
-def process_query_async(query_id: str, user_query: str, session_id: str = None, user_id: str = None, conversation_history: list = None):
+def process_query_async(query_id: str, user_query: str, session_id: Optional[str] = None, user_id: Optional[str] = None, guest_session_id: Optional[str] = None, conversation_history: Optional[list] = None):
     import os
     import time
     import json
@@ -401,22 +401,28 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
 
     # Check Semantic Cache using Python-side cosine similarity (avoids pgvector string corruption bugs)
     # Only active for standalone single-turn queries to preserve multi-turn conversation context
-    CACHE_SIMILARITY_THRESHOLD = 0.97
-    query_embedding = None
+    CACHE_SIMILARITY_THRESHOLD = 0.98
+    user_query_embedding = None
     if not conversation_history:
         try:
             import numpy as np
-            query_embedding = embed_model.encode([user_query], convert_to_numpy=True)[0]
-            query_emb_norm = query_embedding / (np.linalg.norm(query_embedding) + 1e-10)
+            user_query_embedding = embed_model.encode([user_query], convert_to_numpy=True)[0]
+            query_emb_norm = user_query_embedding / (np.linalg.norm(user_query_embedding) + 1e-10)
+            user_topic = telemetry.get("topic_category", "general")
 
-            # Fetch recent cache rows with stored_embedding_text (comma-separated floats)
+            # Fetch recent cache rows with stored_embedding_text & topic_category
             cache_rows = supabase.table("semantic_cache").select(
-                "cache_id, query_text, response_text, sources, stored_embedding_text"
+                "cache_id, query_text, response_text, sources, stored_embedding_text, topic_category"
             ).order("created_at", desc=True).limit(200).execute()
 
             best_sim = -1.0
             best_item = None
             for row in (cache_rows.data or []):
+                # Topic Guard: Ensure cached query belongs to the same domain topic
+                stored_topic = row.get("topic_category")
+                if stored_topic and stored_topic != "general" and user_topic != "general" and stored_topic != user_topic:
+                    continue
+
                 emb_text = row.get("stored_embedding_text")
                 if not emb_text or not isinstance(emb_text, str):
                     continue
@@ -433,7 +439,7 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                     continue
 
             if best_item is not None and best_sim >= CACHE_SIMILARITY_THRESHOLD:
-                logger.info(f"⚡ Semantic cache HIT (sim={best_sim:.4f}) for: '{user_query[:60]}' → matched: '{best_item.get('query_text','')[:60]}'")
+                logger.info(f"⚡ Semantic cache HIT (sim={best_sim:.4f}, topic={user_topic}) for: '{user_query[:60]}' → matched: '{best_item.get('query_text','')[:60]}'")
                 telemetry["cache_hit"] = True
                 telemetry["guardian_passed"] = True
                 telemetry["synthesis_source"] = "semantic_cache"
@@ -488,7 +494,11 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                 json={"model": model, "messages": messages, "max_tokens": AGENT_MAX_TOKENS.get(agent_type, 1024), "temperature": AGENT_TEMPERATURE.get(agent_type, 0.7)},
                 timeout=30
             )
+            if res.status_code != 200:
+                raise RuntimeError(f"NVIDIA API Error ({res.status_code}): {res.text}")
             data = res.json()
+            if "choices" not in data or not data["choices"]:
+                raise RuntimeError(f"NVIDIA API response missing choices: {data}")
             return {"text": data["choices"][0]["message"]["content"], "tokens": data.get("usage", {}).get("total_tokens", 0)}
         elif provider == "deepseek":
             DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
@@ -505,7 +515,11 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                 json={"model": model, "messages": messages, "max_tokens": AGENT_MAX_TOKENS.get(agent_type, 1024), "temperature": AGENT_TEMPERATURE.get(agent_type, 0.7)},
                 timeout=60
             )
+            if res.status_code != 200:
+                raise RuntimeError(f"DeepSeek API Error ({res.status_code}): {res.text}")
             data = res.json()
+            if "choices" not in data or not data["choices"]:
+                raise RuntimeError(f"DeepSeek API response missing choices: {data}")
             return {"text": data["choices"][0]["message"]["content"], "tokens": data.get("usage", {}).get("total_tokens", 0)}
         else: # gemini
             if not ai_client:
@@ -517,12 +531,14 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                     contents.append({"role": g_role, "parts": [{"text": msg["content"]}]})
             contents.append({"role": "user", "parts": [{"text": prompt}]})
             res = ai_client.models.generate_content(model="gemini-2.5-flash", contents=contents)
+            if not res or not hasattr(res, "text") or not res.text:
+                raise RuntimeError("Gemini API returned an empty or invalid response.")
             tokens = res.usage_metadata.total_token_count if hasattr(res, 'usage_metadata') and res.usage_metadata else 0
             return {"text": res.text.strip(), "tokens": tokens}
 
     try:
         guardian_prompt = f"""
-        Task: You are the Guardian Agent for acAIcia, the AI Research Assistant of Landscape Alliance (CIFOR-ICRAF).
+        Task: You are the Guardian Agent for acAIcia, the AI Research Assistant of Landscape Alliance.
         Determine if the user query is safe and relevant to Landscape Alliance's broad research domains.
 
         ALLOWED TOPICS INCLUDE:
@@ -656,7 +672,7 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                     sources.append(source_meta)
 
             synthesis_prompt = f"""
-            You are acAIcia, an expert research assistant for Landscape Alliance (formerly CIFOR-ICRAF). 
+            You are acAIcia, an expert research assistant for Landscape Alliance. 
             Your goal is to answer the user's query professionally and academically using ONLY the provided excerpts below. 
 
             CRITICAL CITATION RULES:
@@ -673,7 +689,7 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
         else:
             telemetry["synthesis_source"] = "general_knowledge_fallback"
             synthesis_prompt = f"""
-            You are acAIcia, an expert research assistant for Landscape Alliance (formerly CIFOR-ICRAF). 
+            You are acAIcia, an expert research assistant for Landscape Alliance. 
             The internal database lacks this specific document excerpt. Provide a general scientific answer to the query based on your training data. 
             Explicitly state that this information does not come from the Landscape Alliance internal knowledge base.
             {custom_pref_block}
@@ -710,9 +726,9 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
         if results and synth_text:
             try:
                 import numpy as np
-                # Use already-computed embedding if available, else recompute
-                if query_embedding is not None:
-                    raw_emb = query_embedding
+                # FIX: Always compute embedding of the RAW user_query (never store optimized_query embedding)
+                if user_query_embedding is not None:
+                    raw_emb = user_query_embedding
                 else:
                     raw_emb = embed_model.encode([user_query], convert_to_numpy=True)[0]
                 # Store as comma-separated text string — avoids pgvector string corruption
@@ -722,9 +738,10 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                     "query_embedding": [float(x) for x in raw_emb],  # keep for RPC compatibility
                     "stored_embedding_text": emb_text,               # reliable Python-parseable
                     "response_text": synth_text.strip(),
-                    "sources": sources
+                    "sources": sources,
+                    "topic_category": telemetry.get("topic_category", "general")
                 }).execute()
-                logger.info(f"✅ Cached response for: '{user_query[:60]}'")
+                logger.info(f"✅ Cached response for: '{user_query[:60]}' [topic={telemetry.get('topic_category')}]")
             except Exception as cache_ins_err:
                 logger.warning(f"Failed to insert into semantic cache: {cache_ins_err}")
 
@@ -782,7 +799,8 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
             "status": "completed",
             "response": synth_text.strip(),
             "sources": sources,
-            "query_id": query_id
+            "query_id": query_id,
+            "cache_hit": False
         })
 
     except Exception as e:
@@ -941,11 +959,7 @@ def fastapi_app_entrypoint():
             active_source="volume"
         )
 
-    class FeedbackRequest(BaseModel):
-        log_id: Optional[str] = None
-        user_id: Optional[str] = None
-        rating: int
-        correction_text: Optional[str] = None
+
 
     @fastapi_app.post("/feedback")
     def submit_feedback(req: FeedbackRequest):
