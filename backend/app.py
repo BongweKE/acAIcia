@@ -663,11 +663,27 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
             context_text = ""
             for i, r in enumerate(results):
                 title = r.get('title') or 'Unknown Title'
-                authors = ', '.join(r.get('authors', [])) if r.get('authors') else 'Unknown Authors'
+                raw_authors = r.get('authors', [])
+                authors = ', '.join(raw_authors) if raw_authors else 'Unknown Authors'
                 year = r.get('publication_year') or 'n.d.'
                 chunk = r.get('chunk_text', '')
 
-                context_text += f"\nDocument {i+1}:\nTitle: {title}\nAuthors: {authors}\nYear: {year}\nExcerpt: {chunk}\n"
+                # Pre-compute explicit clean citation tag for LLM
+                if raw_authors and authors != 'Unknown Authors':
+                    first_author = raw_authors[0].split(',')[0].strip()
+                    if len(raw_authors) > 1:
+                        cite_tag = f"[{first_author} et al., {year}]"
+                    else:
+                        cite_tag = f"[{first_author}, {year}]"
+                else:
+                    # Clean fallback: if title is a raw manuscript ID (e.g. S10457-026-01510-X or Pb23027), use Landscape Alliance
+                    if title.startswith(('S10', 'Pb', '10.', 'http')) or len(title) < 5:
+                        cite_tag = f"[Landscape Alliance, {year}]"
+                    else:
+                        short_title = title[:35] + ('...' if len(title) > 35 else '')
+                        cite_tag = f"[{short_title}, {year}]"
+
+                context_text += f"\nSource {i+1} (MUST USE THIS EXACT CITATION TAG: {cite_tag}):\nTitle: {title}\nAuthors: {authors}\nYear: {year}\nExcerpt: {chunk}\n"
 
                 source_meta = {
                     "title": title,
@@ -685,10 +701,10 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
             Your goal is to answer the user's query professionally and academically using ONLY the provided excerpts below. 
 
             CRITICAL CITATION RULES:
-            1. You MUST cite the source of information at the relevant points in your answer using the exact format: [Author(s), Year] (e.g., [Hoang et al., 2010]).
-            2. DO NOT use document index citations like "[Document 1]", "[Document 2]", or "[1]", "[2]".
-            3. If an excerpt has no authors, use Title or 'Landscape Alliance' and Year (e.g., [Landscape Alliance, 2020]).
-            4. Ensure every claim is backed by a specific inline citation in [Author(s), Year] format.
+            1. You MUST cite sources using ONLY the exact CITATION TAG provided above each source excerpt (e.g., [Mwangi et al., 2024] or [Landscape Alliance, 2025]).
+            2. NEVER use index labels or document numbers like "[Document 1]", "[Document 2]", "[Document 3]", or "[1]", "[2]".
+            3. NEVER output raw manuscript codes or file IDs like "[S10457-026-01510-X]" or "[Pb23027]".
+            4. Ensure every claim is backed by a specific inline citation using the exact tag.
             {custom_pref_block}
             User's Original Query: {user_query}
 
