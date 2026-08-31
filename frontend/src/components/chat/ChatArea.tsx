@@ -6,14 +6,18 @@ import { PromptPills } from './PromptPills';
 import { StatusIndicator } from './StatusIndicator';
 import { FeedbackModal } from '../feedback/FeedbackModal';
 import { SettingsModal } from '../settings/SettingsModal';
-import { Send, Cpu } from 'lucide-react';
+import { ChatHistoryDrawer } from './ChatHistoryDrawer';
+import { Send, Cpu, Plus, History, MessageSquare } from 'lucide-react';
 
 export const ChatArea: React.FC = () => {
-  const { messages, submitUserQuery, isProcessing, currentStage } = useChat();
+  const { messages, submitUserQuery, isProcessing, currentStage, sessions, activeSessionId, createNewSession } = useChat();
   const { activeModelName } = useSettings();
 
   const [inputQuery, setInputQuery] = useState('');
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -41,8 +45,47 @@ export const ChatArea: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 max-w-5xl mx-auto w-full p-4 sm:p-6 bg-card text-card-foreground">
+      {/* Header Session Bar */}
+      <div className="flex items-center justify-between gap-3 pb-4 mb-4 border-b border-border">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-1.5 bg-accent/10 rounded-lg text-accent shrink-0">
+            <MessageSquare className="w-4 h-4" />
+          </div>
+          <h2 className="text-xs font-semibold truncate text-foreground">
+            {activeSession ? activeSession.title : 'Research Chat'}
+          </h2>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={createNewSession}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors shadow-sm"
+            title="Start a new research chat session"
+          >
+            <Plus className="w-3.5 h-3.5 text-accent" />
+            <span className="hidden sm:inline">New Chat</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsHistoryOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors shadow-sm"
+            title="View saved device chat history"
+          >
+            <History className="w-3.5 h-3.5 text-accent" />
+            <span>History</span>
+            {sessions.length > 0 && (
+              <span className="ml-0.5 rounded-full bg-accent/10 px-1.5 py-0.2 font-mono text-[10px] font-semibold text-accent">
+                {sessions.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
       {/* Scrollable Message History */}
-      <div className="flex-1 overflow-y-auto space-y-6 pr-1 pb-4 min-h-[400px]">
+      <div className="flex-1 overflow-y-auto space-y-6 pr-1 pb-4 min-h-[380px]">
         {messages.map((msg) => (
           <MessageItem key={msg.id} message={msg} />
         ))}
@@ -95,7 +138,8 @@ export const ChatArea: React.FC = () => {
         </form>
       </div>
 
-      {/* Global Modals */}
+      {/* Global Modals & Drawers */}
+      <ChatHistoryDrawer isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
       <FeedbackModal />
       <SettingsModal />
     </div>

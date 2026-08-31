@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ArrowRight, Menu, X } from 'lucide-react';
 import { Wordmark } from './Wordmark';
+import { ThemeToggle } from './ThemeToggle';
 
 export const Header: React.FC = () => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -47,6 +48,7 @@ export const Header: React.FC = () => {
 
         {/* Header Actions */}
         <div className="hidden items-center gap-3 md:flex">
+          <ThemeToggle />
           <Link
             to="/feedback"
             className="inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -115,6 +117,10 @@ export const Header: React.FC = () => {
           >
             Citation feedback
           </Link>
+          <div className="pt-2 border-t border-border flex items-center justify-between px-3">
+            <span className="text-xs text-muted-foreground">Theme</span>
+            <ThemeToggle />
+          </div>
         </nav>
       )}
     </header>
