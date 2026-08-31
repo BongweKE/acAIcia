@@ -360,23 +360,33 @@ export const HomePage: React.FC = () => {
           <div>
             <div className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.2em] text-accent font-semibold">
               <span className="h-px w-8 bg-accent" />
-              About acAIcia
+              About Landscape Alliance
             </div>
             <h2 className="mt-5 max-w-3xl font-serif text-4xl font-medium leading-[1.02] tracking-[-0.035em] sm:text-5xl lg:text-6xl">
-              Research should help people make better decisions in the field.
+              Transforming science into global action.
             </h2>
           </div>
 
           <div>
-            <p className="text-base leading-7 text-primary-foreground/70">
-              acAIcia is an intelligent agriscience assistant designed to make research more useful — synthesised clearly, grounded in peer-reviewed evidence, and open to scrutiny.
+            <p className="text-base leading-7 text-primary-foreground/75">
+              Landscape Alliance transforms science into action, unlocking the power of trees, forests and agroforestry landscapes to advance planetary health and human well-being. By 2035, Landscape Alliance is committed to measurable, global-scale outcomes for climate, biodiversity, restoration, resilient livelihoods and agroforestry transformation. These commitments are grounded in science, data, partnerships and implementation experience.
             </p>
-            <Link
-              to="/about"
-              className="mt-7 inline-flex items-center gap-2 rounded-md bg-secondary px-5 py-2.5 text-sm font-semibold text-secondary-foreground shadow transition-colors hover:bg-secondary/90"
-            >
-              Learn about the project <ExternalLink className="h-4 w-4" />
-            </Link>
+            <div className="mt-7 flex flex-wrap gap-4">
+              <a
+                href="https://www.landscapealliance.org/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-md bg-secondary px-5 py-2.5 text-sm font-semibold text-secondary-foreground shadow transition-colors hover:bg-secondary/90"
+              >
+                Learn more <ExternalLink className="h-4 w-4" />
+              </a>
+              <Link
+                to="/about"
+                className="inline-flex items-center gap-2 rounded-md border border-primary-foreground/20 px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-foreground/10 transition-colors"
+              >
+                Learn about the acAIcia project
+              </Link>
+            </div>
           </div>
         </div>
       </section>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { AcaiciaPageShell } from '../components/layout/AcaiciaPageShell';
-import { ArrowRight, Leaf, ShieldCheck, Globe, Award } from 'lucide-react';
+import { ArrowRight, Leaf, ShieldCheck, Globe, Award, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const AboutPage: React.FC = () => {
@@ -53,16 +53,18 @@ export const AboutPage: React.FC = () => {
             About Landscape Alliance
           </h2>
           <p className="mt-4 text-base leading-7 text-muted-foreground">
-            The Center for International Forestry Research (CIFOR) and World Agroforestry (ICRAF) joined forces as Landscape Alliance to deliver actionable science-based solutions to climate change, deforestation, biodiversity loss, and rural poverty. acAIcia serves as an intelligent research gateway for scientists, development partners, and policy specialists.
+            Landscape Alliance transforms science into action, unlocking the power of trees, forests and agroforestry landscapes to advance planetary health and human well-being. By 2035, Landscape Alliance is committed to measurable, global-scale outcomes for climate, biodiversity, restoration, resilient livelihoods and agroforestry transformation. These commitments are grounded in science, data, partnerships and implementation experience.
           </p>
 
           <div className="mt-8 flex flex-wrap gap-4 border-t border-border pt-6">
-            <Link
-              to="/assistant"
+            <a
+              href="https://www.landscapealliance.org/"
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-md bg-secondary px-5 py-2.5 text-sm font-semibold text-secondary-foreground shadow hover:bg-secondary/90 transition-colors"
             >
-              Start Researching <ArrowRight className="h-4 w-4" />
-            </Link>
+              Learn more <ExternalLink className="h-4 w-4" />
+            </a>
           </div>
         </div>
       </div>
