@@ -538,8 +538,8 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
 
     try:
         guardian_prompt = f"""
-        Task: You are the Guardian Agent for acAIcia, the AI Research Assistant of Landscape Alliance.
-        Determine if the user query is safe and relevant to Landscape Alliance's broad research domains.
+        Task: You are the Guardian Agent for acAIcia, the AI Research Assistant of Landscape Alliance (formerly CIFOR-ICRAF).
+        Determine if the user query is safe and relevant to Landscape Alliance's broad research domains (including legacy CIFOR-ICRAF literature).
 
         ALLOWED TOPICS INCLUDE:
         - Forestry, Agroforestry, Silvopasture, Tree species, and Ecosystem Restoration.
@@ -672,7 +672,8 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
                     sources.append(source_meta)
 
             synthesis_prompt = f"""
-            You are acAIcia, an expert research assistant for Landscape Alliance. 
+            You are acAIcia, an expert research assistant for Landscape Alliance (formerly CIFOR-ICRAF). 
+            Note that the internal knowledge base includes publications and technical reports published under both Landscape Alliance and legacy CIFOR-ICRAF literature.
             Your goal is to answer the user's query professionally and academically using ONLY the provided excerpts below. 
 
             CRITICAL CITATION RULES:
@@ -689,9 +690,9 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
         else:
             telemetry["synthesis_source"] = "general_knowledge_fallback"
             synthesis_prompt = f"""
-            You are acAIcia, an expert research assistant for Landscape Alliance. 
+            You are acAIcia, an expert research assistant for Landscape Alliance (formerly CIFOR-ICRAF). 
             The internal database lacks this specific document excerpt. Provide a general scientific answer to the query based on your training data. 
-            Explicitly state that this information does not come from the Landscape Alliance internal knowledge base.
+            Explicitly state that this information does not come from the Landscape Alliance (CIFOR-ICRAF) internal knowledge base.
             {custom_pref_block}
             User's Query: {user_query}
             """
