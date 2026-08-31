@@ -10,7 +10,7 @@ The acAIcia frontend is a modern **Vite 5 + React 18 + TypeScript + React Router
 
 - **Context Providers (`frontend/src/context/`)**:
   - `AuthContext`: Generates machine UUID (`acaicia_machine_id`) used as `guest_session_id` in API calls.
-  - `ChatContext`: Manages chat messages, research prompt pills, RAG status stage polling, feedback modal state, and multi-session chat history stored in `localStorage`.
+  - `ChatContext`: Manages chat messages, research prompt pills, RAG status stage polling, feedback modal state, and multi-session chat history stored in `localStorage`. Includes consecutive error tracking (aborts only after 10 consecutive network failures), 180-second polling timeout limit, dynamic backend stage updates, and auto-resume polling for pending queries on session mount or switch.
   - `SettingsContext`: Fetches and displays active LLM model provider in read-only mode for user views, and manages custom synthesis instructions.
   - `ToastContext`: Provides global UI notification toasts.
 - **Pages (`frontend/src/pages/`)**:

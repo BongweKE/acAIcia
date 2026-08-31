@@ -163,3 +163,8 @@ The backend query engine (`backend/app.py`) executes an asynchronous 4-stage pip
 
 5. **Continuous Documentation Integrity**:
    - Whenever updating features, backend endpoints, or frontend components, immediately update `AGENTS.md` and `docs/frontend.md`.
+
+6. **Query Polling Resilience & Database Fallback Protocol**:
+   - `ChatContext.tsx` uses consecutive error counting (aborts only after 10 consecutive network failures) with a 180-second timeout to support long RAG queries (20–45s).
+   - `/query/status/{query_id}` falls back to `query_interaction_logs` and `semantic_cache` in Supabase if Modal volume sync lags, returning a processing state rather than HTTP 404.
+   - Pending assistant queries are auto-resumed on session mount or switch.

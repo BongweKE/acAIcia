@@ -11,3 +11,4 @@ This directory contains records of key architectural decisions made during the d
 | [0005](0005-hybrid-sparse-dense-retrieval-via-reciprocal-rank-fusion.md) | Hybrid Sparse-Dense Retrieval via Supabase Reciprocal Rank Fusion (RRF) | Approved | 2026-08-20 |
 | [0006](0006-python-side-cosine-similarity-fallback-for-pgvector.md) | Python-Side Cosine Similarity Fallback for PostgREST pgvector Serialization | Approved | 2026-08-25 |
 | [0007](0007-domain-bounded-semantic-cache-with-topic-isolation.md) | Domain-Bounded Semantic Cache with Topic Isolation, Vector Alignment, and 0.98 Threshold | Approved | 2026-08-31 |
+| [0008](0008-query-polling-resilience-and-database-status-fallback.md) | Query Polling Resilience and Database Status Fallbacks | Approved | 2026-08-31 |

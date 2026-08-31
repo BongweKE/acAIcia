@@ -410,10 +410,15 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
             query_emb_norm = user_query_embedding / (np.linalg.norm(user_query_embedding) + 1e-10)
             user_topic = telemetry.get("topic_category", "general")
 
-            # Fetch recent cache rows with stored_embedding_text & topic_category
-            cache_rows = supabase.table("semantic_cache").select(
-                "cache_id, query_text, response_text, sources, stored_embedding_text, topic_category"
-            ).order("created_at", desc=True).limit(200).execute()
+            # Fetch recent cache rows with stored_embedding_text & optional topic_category
+            try:
+                cache_rows = supabase.table("semantic_cache").select(
+                    "cache_id, query_text, response_text, sources, stored_embedding_text, topic_category"
+                ).order("created_at", desc=True).limit(200).execute()
+            except Exception:
+                cache_rows = supabase.table("semantic_cache").select(
+                    "cache_id, query_text, response_text, sources, stored_embedding_text"
+                ).order("created_at", desc=True).limit(200).execute()
 
             best_sim = -1.0
             best_item = None
@@ -537,6 +542,7 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
             return {"text": res.text.strip(), "tokens": tokens}
 
     try:
+        update_status({"status": "processing", "stage": "Guardian Check", "query_id": query_id})
         guardian_prompt = f"""
         Task: You are the Guardian Agent for acAIcia, the AI Research Assistant of Landscape Alliance (formerly CIFOR-ICRAF).
         Determine if the user query is safe and relevant to Landscape Alliance's broad research domains (including legacy CIFOR-ICRAF literature).
@@ -617,6 +623,7 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
         telemetry["architect_query"] = optimized_query
 
         # Hybrid Retrieval Step
+        update_status({"status": "processing", "stage": "Hybrid Retrieval", "query_id": query_id})
         r_start = time.time()
         query_embedding = embed_model.encode([optimized_query], convert_to_numpy=True)[0].tolist()
 
@@ -646,6 +653,7 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
         telemetry["retrieved_doc_ids"] = doc_ids
 
         # Synthesis Agent Step
+        update_status({"status": "processing", "stage": "Synthesis Engine", "query_id": query_id})
         s_start = time.time()
         sources = []
         custom_pref_block = f"\nUser Custom Instructions:\n{custom_instructions}\n" if custom_instructions else ""
@@ -734,14 +742,20 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
                     raw_emb = embed_model.encode([user_query], convert_to_numpy=True)[0]
                 # Store as comma-separated text string — avoids pgvector string corruption
                 emb_text = ",".join(f"{float(x):.8f}" for x in raw_emb)
-                supabase.table("semantic_cache").insert({
+                cache_payload = {
                     "query_text": user_query,
                     "query_embedding": [float(x) for x in raw_emb],  # keep for RPC compatibility
                     "stored_embedding_text": emb_text,               # reliable Python-parseable
                     "response_text": synth_text.strip(),
                     "sources": sources,
                     "topic_category": telemetry.get("topic_category", "general")
-                }).execute()
+                }
+                try:
+                    supabase.table("semantic_cache").insert(cache_payload).execute()
+                except Exception as ins_err:
+                    # Fallback if topic_category column is not yet in live Supabase schema
+                    cache_payload.pop("topic_category", None)
+                    supabase.table("semantic_cache").insert(cache_payload).execute()
                 logger.info(f"✅ Cached response for: '{user_query[:60]}' [topic={telemetry.get('topic_category')}]")
             except Exception as cache_ins_err:
                 logger.warning(f"Failed to insert into semantic cache: {cache_ins_err}")
@@ -1389,18 +1403,52 @@ def fastapi_app_entrypoint():
 
     @fastapi_app.get("/query/status/{query_id}")
     def get_query_status(query_id: str):
+        # 1. Try reading status file from Modal Volume
         try:
             vol.reload()
             status_path = f"/data/queries/{query_id}.json"
-            if not os.path.exists(status_path):
-                raise HTTPException(status_code=404, detail="Query status not found.")
-            with open(status_path, "r") as f:
-                data = json.load(f)
-            return data
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            if os.path.exists(status_path):
+                with open(status_path, "r") as f:
+                    data = json.load(f)
+                if data.get("status") in ["completed", "failed"]:
+                    return data
+        except Exception as vol_err:
+            pass
+
+        # 2. DB Fallback: Check if completed record exists in Supabase query_interaction_logs
+        try:
+            SUPABASE_URL = os.environ.get("SUPABASE_URL")
+            SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+            if SUPABASE_URL and SUPABASE_KEY:
+                from supabase import create_client
+                supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                log_res = supabase_client.table("query_interaction_logs").select("original_query, cache_hit").eq("log_id", query_id).execute()
+                if log_res.data:
+                    orig_q = log_res.data[0].get("original_query")
+                    if orig_q:
+                        cache_res = supabase_client.table("semantic_cache").select("response_text, sources").eq("query_text", orig_q).order("created_at", desc=True).limit(1).execute()
+                        if cache_res.data:
+                            return {
+                                "status": "completed",
+                                "query_id": query_id,
+                                "response": cache_res.data[0].get("response_text"),
+                                "sources": cache_res.data[0].get("sources", []),
+                                "cache_hit": log_res.data[0].get("cache_hit", False)
+                            }
+        except Exception as db_err:
+            pass
+
+        # 3. If file exists with processing status, return volume data
+        try:
+            status_path = f"/data/queries/{query_id}.json"
+            if os.path.exists(status_path):
+                with open(status_path, "r") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+
+        # 4. Graceful default fallback: Return processing status instead of HTTP 404
+        return {"status": "processing", "query_id": query_id, "stage": "Processing RAG Pipeline"}
 
     return fastapi_app
 

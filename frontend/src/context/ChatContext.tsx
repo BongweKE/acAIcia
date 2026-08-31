@@ -178,6 +178,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const pollQueryStatus = useCallback((queryId: string, assistantMsgId: string, targetSessionId: string) => {
     let pollCount = 0;
+    let consecutiveErrors = 0;
 
     const updateStage = (tick: number, backendStage?: string) => {
       if (backendStage) {
@@ -186,21 +187,51 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (backendStage.toLowerCase().includes('retriev')) return 'Hybrid Retrieval';
         if (backendStage.toLowerCase().includes('synthes')) return 'Synthesis Engine';
       }
-      if (tick <= 1) return 'Guardian Check';
-      if (tick <= 3) return 'Query Architect';
-      if (tick <= 5) return 'Hybrid Retrieval';
+      if (tick <= 2) return 'Guardian Check';
+      if (tick <= 4) return 'Query Architect';
+      if (tick <= 8) return 'Hybrid Retrieval';
       return 'Synthesis Engine';
     };
 
     setCurrentStage('Guardian Check');
+
+    if (pollingTimerRef.current) {
+      clearInterval(pollingTimerRef.current);
+    }
 
     pollingTimerRef.current = setInterval(async () => {
       pollCount++;
       const stage = updateStage(pollCount);
       setCurrentStage(stage);
 
+      // Max total polling limit: 180 seconds (3 minutes)
+      if (pollCount > 180) {
+        if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+        const errorMsg = 'Query processing timed out after 3 minutes.';
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== targetSessionId) return s;
+            return {
+              ...s,
+              messages: s.messages.map((msg) => {
+                if (msg.id === assistantMsgId) {
+                  return { ...msg, content: `❌ **Timeout Error**: ${errorMsg}`, status: 'failed' };
+                }
+                return msg;
+              }),
+            };
+          })
+        );
+        addToast(errorMsg, 'error');
+        setIsProcessing(false);
+        setCurrentQueryId(null);
+        setCurrentStage(null);
+        return;
+      }
+
       try {
         const res: QueryStatusResponse = await client.getQueryStatus(queryId);
+        consecutiveErrors = 0; // reset consecutive error counter on valid response
 
         if (res.stage) {
           setCurrentStage(updateStage(pollCount, res.stage));
@@ -264,10 +295,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setCurrentStage(null);
         }
       } catch (err: any) {
-        console.error('Error polling query status:', err);
-        if (pollCount >= 15) {
+        consecutiveErrors++;
+        console.warn(`Polling query ${queryId} attempt ${pollCount} failed (${consecutiveErrors} consecutive errors):`, err);
+
+        // Only abort if 10 CONSECUTIVE network/server failures occur
+        if (consecutiveErrors >= 10) {
           if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
-          const errorMsg = err.message || 'Network error while checking query status.';
+          const errorMsg = err.message || 'Sustained network error while checking query status.';
           setSessions((prev) =>
             prev.map((s) => {
               if (s.id !== targetSessionId) return s;
@@ -294,6 +328,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }, 1000);
   }, [addToast]);
+
+  // Auto-resume polling for pending/processing assistant messages in active session
+  useEffect(() => {
+    if (!activeSession) return;
+    const pendingMsg = activeSession.messages.find(
+      (m) => m.role === 'assistant' && (m.status === 'processing' || (!m.content && m.queryId)) && m.queryId
+    );
+    if (pendingMsg && pendingMsg.queryId) {
+      setIsProcessing(true);
+      setCurrentQueryId(pendingMsg.queryId);
+      pollQueryStatus(pendingMsg.queryId, pendingMsg.id, activeSession.id);
+    }
+  }, [activeSessionId, pollQueryStatus]);
 
   const { guestSessionId } = useAuth();
 
