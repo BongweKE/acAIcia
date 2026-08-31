@@ -7,7 +7,7 @@ interface SourceCardProps {
   index?: number;
 }
 
-export const SourceCard: React.FC<SourceCardProps> = ({ source, index }) => {
+export const SourceCard: React.FC<SourceCardProps> = ({ source }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const doiUrl = source.doi
@@ -17,20 +17,20 @@ export const SourceCard: React.FC<SourceCardProps> = ({ source, index }) => {
     : source.url || '#';
 
   return (
-    <div className="bg-forest-800/60 border border-forest-700/60 hover:border-emerald-500/40 rounded-xl p-3.5 transition-all shadow-sm hover:shadow-glow space-y-2">
+    <div className="bg-card border border-border hover:border-accent/40 rounded-xl p-3.5 transition-all shadow-sm space-y-2">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2 flex-1 min-w-0">
-          <div className="p-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20 shrink-0 mt-0.5">
-            <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
+          <div className="p-1.5 bg-accent/10 rounded-lg shrink-0 mt-0.5 text-accent">
+            <BookOpen className="w-3.5 h-3.5" />
           </div>
           <div className="min-w-0">
-            <h4 className="text-xs font-semibold text-gray-100 leading-snug line-clamp-2">
+            <h4 className="text-xs font-semibold text-foreground leading-snug line-clamp-2">
               {source.title}
             </h4>
-            <div className="flex items-center gap-2 mt-1 text-[11px] text-gray-400">
+            <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground">
               <span className="truncate max-w-[200px]">{source.authors}</span>
               <span>•</span>
-              <span className="font-mono text-emerald-300 font-medium">{source.year}</span>
+              <span className="font-mono text-accent font-medium">{source.year}</span>
             </div>
           </div>
         </div>
@@ -40,7 +40,7 @@ export const SourceCard: React.FC<SourceCardProps> = ({ source, index }) => {
             href={doiUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-1.5 bg-forest-700/60 hover:bg-emerald-500/20 text-emerald-400 rounded-lg border border-forest-600/40 hover:border-emerald-500/40 transition-colors shrink-0 flex items-center gap-1 text-[11px]"
+            className="p-1.5 bg-muted hover:bg-accent/10 text-accent rounded-lg border border-border hover:border-accent/40 transition-colors shrink-0 flex items-center gap-1 text-[11px]"
             title="View full publication via DOI"
           >
             <span className="hidden sm:inline font-mono">DOI</span>
@@ -53,8 +53,9 @@ export const SourceCard: React.FC<SourceCardProps> = ({ source, index }) => {
       {source.snippet && (
         <div>
           <button
+            type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300 font-medium transition-colors pt-1"
+            className="flex items-center gap-1 text-[11px] text-accent hover:underline font-medium transition-colors pt-1"
           >
             <FileText className="w-3 h-3" />
             <span>{isExpanded ? 'Hide Chunk Preview' : 'Show Chunk Preview'}</span>
@@ -62,7 +63,7 @@ export const SourceCard: React.FC<SourceCardProps> = ({ source, index }) => {
           </button>
           
           {isExpanded && (
-            <div className="mt-2 p-2.5 bg-forest-900/80 rounded-lg border border-forest-700/50 text-xs text-gray-300 font-mono leading-relaxed max-h-40 overflow-y-auto">
+            <div className="mt-2 p-2.5 bg-muted rounded-lg border border-border text-xs text-muted-foreground font-mono leading-relaxed max-h-40 overflow-y-auto">
               "{source.snippet}"
             </div>
           )}

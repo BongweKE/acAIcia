@@ -1,9 +1,10 @@
 import os
 import json
 import time
+import random
 import threading
-from typing import Optional
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from typing import Optional, List
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Header
 from pydantic import BaseModel
 import modal
 
@@ -27,11 +28,113 @@ vol = modal.Volume.from_name("acaicia-data-volume", create_if_missing=True)
 hf_cache_vol = modal.Volume.from_name("acaicia-hf-cache", create_if_missing=True)
 ram_cache = modal.Dict.from_name("acaicia-ram-cache", create_if_missing=True)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM Provider Cost Table (USD per 1M tokens — public rates as of Aug 2026)
+# Sources: platform.deepseek.com, ai.google.dev, integrate.api.nvidia.com/v1
+# Modal self-hosted Gemma: GPU cost absorbed in subscription, logged as $0
+# ─────────────────────────────────────────────────────────────────────────────
+COST_PER_1M_TOKENS = {
+    "gemini":   {"input": 1.50,  "output": 7.50},   # Gemini 2.5 Flash
+    "nvidia":   {"input": 0.35,  "output": 0.40},   # Llama 3.3 70B via NVIDIA NIM API
+    "deepseek": {"input": 0.44,  "output": 0.88},   # DeepSeek Reasoner (deepseek.com)
+    "modal":    {"input": 0.0,   "output": 0.0},    # Self-hosted Gemma 4 on Modal GPU
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Topic Taxonomy — mirrors Guardian agent's allowed domain list
+# Rule-based keyword matching is done first; Modal Gemma is used as LLM fallback
+# ─────────────────────────────────────────────────────────────────────────────
+TOPIC_KEYWORDS = {
+    "peatlands":       ["peat", "peatland", "groundwater", "hydrology", "subsidence", "drainage", "tropical peat", "hemic", "sapric", "water table"],
+    "fire_management": ["fire", "prescribed burn", "smoke", "haze", "globalrx", "wildfire", "burning", "respiratory", "combustion", "burnt area", "fire management"],
+    "food_systems":    ["food system", "ghg", "greenhouse gas", "emission", "food supply", "crop", "livestock", "land use", "diet", "agriculture", "food emission"],
+    "agroforestry":    ["agroforestry", "silvopasture", "tree", "forest", "woodland", "canopy", "shade", "intercrop", "fallow", "reforestation", "afforestation", "timber"],
+    "climate_change":  ["climate", "carbon", "co2", "sequestration", "mitigation", "adaptation", "warming", "ipcc", "temperature", "blue carbon", "mangrove", "ghg"],
+    "soil_science":    ["soil", "organic carbon", "soc", "erosion", "degradation", "fertility", "nitrogen", "phosphorus", "microbiome", "rhizosphere", "soil carbon"],
+    "biodiversity":    ["biodiversity", "species", "wildlife", "mammal", "habitat", "ecology", "conservation", "endemic", "fauna", "flora", "ecosystem"],
+    "policy":          ["policy", "governance", "law", "regulation", "ndcs", "redd", "treaty", "convention", "cbd", "unfccc", "land rights", "tenure", "legal"],
+    "methodology":     ["remote sensing", "satellite", "lidar", "survey", "methodology", "mapping", "modelling", "dataset", "machine learning", "ai model", "gis"],
+}
+
+def classify_query_topic_rule_based(query: str) -> Optional[str]:
+    """Fast keyword-based topic classification. Returns topic_id or None if no confident match."""
+    query_lower = query.lower()
+    best_topic = None
+    best_score = 0
+    for topic, kws in TOPIC_KEYWORDS.items():
+        score = sum(1 for kw in kws if kw in query_lower)
+        if score > best_score:
+            best_score = score
+            best_topic = topic
+    # Only return if at least 1 keyword matched
+    return best_topic if best_score >= 1 else None
+
+def classify_query_topic(query: str, logger=None) -> str:
+    """Hybrid topic classifier: keyword-first, Modal Gemma LLM as fallback."""
+    # Step 1: Fast rule-based pass
+    rule_result = classify_query_topic_rule_based(query)
+
+    # Step 2: If rule-based gives confident result (score ≥ 1), return it
+    if rule_result:
+        return rule_result
+
+    # Step 3: LLM fallback using Modal Gemma (self-hosted, no extra API cost)
+    try:
+        if GEMMA_CLS is not None:
+            gemma = GEMMA_CLS()
+            topic_list = ", ".join(TOPIC_KEYWORDS.keys())
+            prompt = (
+                f"Classify the following research query into exactly ONE of these topic categories: "
+                f"{topic_list}, or 'general' if none fit.\n"
+                f"Reply with ONLY the topic_id word, nothing else.\n"
+                f"Query: {query}"
+            )
+            result = gemma.generate.remote(
+                prompt=prompt, temperature=0.0, max_tokens=12
+            ).strip().lower()
+            # Validate response is in our taxonomy
+            all_topics = list(TOPIC_KEYWORDS.keys()) + ["general"]
+            for t in all_topics:
+                if t in result:
+                    if logger:
+                        logger.info(f"LLM topic fallback: '{query[:40]}' → {t}")
+                    return t
+    except Exception as e:
+        if logger:
+            logger.warning(f"LLM topic classifier failed: {e}")
+    return "general"
+
+def estimate_query_cost(input_tokens: int, output_tokens: int, provider: str) -> float:
+    """Estimate USD cost for a query based on public provider pricing."""
+    rates = COST_PER_1M_TOKENS.get(provider, COST_PER_1M_TOKENS["gemini"])
+    cost = (input_tokens / 1_000_000) * rates["input"] + (output_tokens / 1_000_000) * rates["output"]
+    return round(cost, 8)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Admin API Key Auth Guard
+# Set ADMIN_API_KEY in Modal secrets (acaicia-llm-secrets). See docs/deployment_guide.md.
+# ─────────────────────────────────────────────────────────────────────────────
+def verify_admin_key(authorization: Optional[str]) -> bool:
+    """Returns True if bearer token matches ADMIN_API_KEY env var."""
+    admin_key = os.environ.get("ADMIN_API_KEY")
+    if not admin_key:
+        # If key not configured, allow access (backward compat during transition)
+        return True
+    if not authorization:
+        return False
+    parts = authorization.split(" ")
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return False
+    return parts[1] == admin_key
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Request & Response Models for FastAPI
+# ─────────────────────────────────────────────────────────────────────────────
 class QueryRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
     user_id: Optional[str] = None
+    guest_session_id: Optional[str] = None   # anonymous UUID for guest tracking
     conversation_history: Optional[list[dict]] = None
 
 class QueryResponse(BaseModel):
@@ -58,7 +161,7 @@ class UserProfileRequest(BaseModel):
     custom_instructions: Optional[str] = None
 
 class FeedbackRequest(BaseModel):
-    log_id: str
+    log_id: Optional[str] = None
     user_id: Optional[str] = None
     rating: int
     correction_text: Optional[str] = None
@@ -205,20 +308,87 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
         "log_id": query_id,
         "session_id": session_id or "anonymous",
         "user_id": user_id,
+        "guest_session_id": guest_session_id,
         "original_query": user_query,
         "guardian_passed": False,
         "architect_query": None,
         "retrieved_doc_ids": [],
         "synthesis_source": None,
         "total_tokens_used": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
         "latency_ms": 0,
         "guardian_ms": 0,
         "architect_ms": 0,
         "retrieval_ms": 0,
         "synthesis_ms": 0,
         "cache_hit": False,
-        "search_mode": "hybrid"
+        "search_mode": "hybrid",
+        "topic_category": classify_query_topic(user_query, logger),
+        "provider_used": get_active_provider(logger),
+        "query_type": "unknown",
+        "estimated_cost_usd": 0.0,
     }
+
+    def run_ragas_production_eval(log_id: str, query: str, answer: str, context_chunks: list, feedback_id: str = None):
+        """Run lightweight RAGAS-style scoring on ~5% of live traffic using Modal Gemma as judge."""
+        try:
+            if GEMMA_CLS is None:
+                return
+            gemma = GEMMA_CLS()
+            context_text = "\n".join([c.get("chunk_text", "")[:300] for c in context_chunks[:3]])
+
+            # Faithfulness: Is the answer grounded in retrieved context?
+            faith_prompt = (
+                f"You are an expert evaluator. Score on a scale of 0.0 to 1.0 how faithfully the Answer "
+                f"is supported by the Context. 1.0=fully grounded, 0.0=hallucinated. Reply with ONLY a decimal number.\n"
+                f"Context: {context_text[:600]}\nAnswer: {answer[:400]}"
+            )
+            faith_raw = gemma.generate.remote(prompt=faith_prompt, temperature=0.0, max_tokens=8).strip()
+            try:
+                faithfulness = min(1.0, max(0.0, float(faith_raw)))
+            except:
+                faithfulness = None
+
+            # Answer Relevance: Does the answer address the query?
+            rel_prompt = (
+                f"Score 0.0 to 1.0 how well the Answer addresses the Query. Reply with ONLY a decimal number.\n"
+                f"Query: {query[:200]}\nAnswer: {answer[:400]}"
+            )
+            rel_raw = gemma.generate.remote(prompt=rel_prompt, temperature=0.0, max_tokens=8).strip()
+            try:
+                answer_relevance = min(1.0, max(0.0, float(rel_raw)))
+            except:
+                answer_relevance = None
+
+            # Context Precision: Are the retrieved chunks relevant to the query?
+            prec_prompt = (
+                f"Score 0.0 to 1.0 how relevant the Context is to answering the Query. Reply with ONLY a decimal number.\n"
+                f"Query: {query[:200]}\nContext: {context_text[:600]}"
+            )
+            prec_raw = gemma.generate.remote(prompt=prec_prompt, temperature=0.0, max_tokens=8).strip()
+            try:
+                context_precision = min(1.0, max(0.0, float(prec_raw)))
+            except:
+                context_precision = None
+
+            scores = [s for s in [faithfulness, answer_relevance, context_precision] if s is not None]
+            overall = round(sum(scores) / len(scores), 4) if scores else None
+
+            supabase.table("production_eval_scores").insert({
+                "log_id": log_id,
+                "feedback_id": feedback_id,
+                "faithfulness": faithfulness,
+                "answer_relevance": answer_relevance,
+                "context_precision": context_precision,
+                "context_recall": None,  # requires ground truth, not available in production
+                "overall_score": overall,
+                "judge_model": "modal_gemma",
+                "raw_output": {"faith": faith_raw, "relevance": rel_raw, "precision": prec_raw}
+            }).execute()
+            logger.info(f"📊 RAGAS scores logged for {log_id}: faith={faithfulness}, rel={answer_relevance}, prec={context_precision}")
+        except Exception as ragas_err:
+            logger.warning(f"RAGAS production eval failed: {ragas_err}")
 
     custom_instructions = ""
     if user_id:
@@ -519,8 +689,18 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
             update_status({"status": "failed", "error": f"System Error: Synthesis Agent failed: {e}"})
             return
 
-        telemetry["latency_ms"] = int((time.time() - start_time) * 1000)
-        telemetry["total_tokens_used"] = total_tokens
+        # ── Cost attribution & query type tagging ──────────────────────────────
+        active_provider = get_active_provider(logger)
+        # Rough input/output split: guardian+architect+retrieval context = input, synthesis answer = output
+        estimated_input  = max(0, total_tokens - synth_res.get("tokens", 0) // 2)
+        estimated_output = synth_res.get("tokens", 0) // 2
+        telemetry["input_tokens"]        = estimated_input
+        telemetry["output_tokens"]       = estimated_output
+        telemetry["total_tokens_used"]   = total_tokens
+        telemetry["provider_used"]       = active_provider
+        telemetry["estimated_cost_usd"]  = estimate_query_cost(estimated_input, estimated_output, active_provider)
+        telemetry["query_type"]          = telemetry.get("synthesis_source", "unknown")
+        telemetry["latency_ms"]          = int((time.time() - start_time) * 1000)
 
         try:
             supabase.table("query_interaction_logs").insert(telemetry).execute()
@@ -558,6 +738,45 @@ def process_query_async(query_id: str, user_query: str, session_id: str = None, 
                 }).execute()
             except Exception:
                 pass
+
+        # ── Production RAGAS scoring: ~5% of database-matched queries ──────────
+        if results and synth_text and random.random() < 0.05:
+            try:
+                run_ragas_production_eval(
+                    log_id=query_id,
+                    query=user_query,
+                    answer=synth_text,
+                    context_chunks=results
+                )
+            except Exception as ragas_err:
+                logger.warning(f"RAGAS eval dispatch failed: {ragas_err}")
+
+        # ── Retrieval gap alert: log if fallback rate is concerning ─────────────
+        if telemetry.get("synthesis_source") == "general_knowledge_fallback":
+            try:
+                # Count fallbacks in last 7 days to detect systemic retrieval gaps
+                from datetime import datetime, timedelta, timezone
+                week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+                fallback_check = supabase.table("query_interaction_logs") \
+                    .select("log_id", count="exact") \
+                    .eq("synthesis_source", "general_knowledge_fallback") \
+                    .gte("timestamp", week_ago).execute()
+                total_check = supabase.table("query_interaction_logs") \
+                    .select("log_id", count="exact") \
+                    .gte("timestamp", week_ago).execute()
+                fallback_n = fallback_check.count or 0
+                total_n = total_check.count or 1
+                fallback_pct = (fallback_n / total_n) * 100
+                if fallback_pct > 15.0:
+                    supabase.table("system_alerts").insert({
+                        "severity": "warning",
+                        "category": "retrieval_gap",
+                        "message": f"General fallback rate is {fallback_pct:.1f}% over the last 7 days (>{15}% threshold). Consider ingesting more documents on: {telemetry.get('topic_category', 'unknown')}.",
+                        "value": round(fallback_pct, 2),
+                        "threshold": 15.0
+                    }).execute()
+            except Exception as alert_err:
+                logger.warning(f"Alert check failed: {alert_err}")
 
         update_status({
             "status": "completed",
@@ -722,6 +941,66 @@ def fastapi_app_entrypoint():
             active_source="volume"
         )
 
+    class FeedbackRequest(BaseModel):
+        log_id: Optional[str] = None
+        user_id: Optional[str] = None
+        rating: int
+        correction_text: Optional[str] = None
+
+    @fastapi_app.post("/feedback")
+    def submit_feedback(req: FeedbackRequest):
+        try:
+            import uuid
+            def safe_uuid(val: str | None) -> str | None:
+                if not val:
+                    return None
+                try:
+                    return str(uuid.UUID(val))
+                except Exception:
+                    return None
+
+            user_uuid = safe_uuid(req.user_id)
+            if not user_uuid and req.user_id and "@" in req.user_id:
+                try:
+                    p_res = supabase.table("user_profiles").select("user_id").eq("email", req.user_id).execute()
+                    if p_res.data:
+                        user_uuid = p_res.data[0]["user_id"]
+                    else:
+                        up_res = supabase.table("user_profiles").upsert({
+                            "email": req.user_id,
+                            "full_name": req.user_id.split("@")[0].capitalize(),
+                            "role": "researcher"
+                        }).execute()
+                        if up_res.data:
+                            user_uuid = up_res.data[0]["user_id"]
+                except Exception as u_err:
+                    logger.warning(f"Could not resolve user UUID for email {req.user_id}: {u_err}")
+
+            log_uuid = safe_uuid(req.log_id)
+            if log_uuid:
+                try:
+                    log_check = supabase.table("query_interaction_logs").select("log_id").eq("log_id", log_uuid).execute()
+                    if not log_check.data:
+                        log_uuid = None
+                except Exception:
+                    log_uuid = None
+
+            payload = {
+                "rating": req.rating,
+                "correction_text": req.correction_text
+            }
+            if user_uuid:
+                payload["user_id"] = user_uuid
+            if log_uuid:
+                payload["log_id"] = log_uuid
+
+            res = supabase.table("query_feedback").insert(payload).execute()
+            logger.info(f"👍 Feedback recorded: rating={req.rating}, user={req.user_id}, log={req.log_id}")
+            return {"status": "success", "data": res.data}
+        except Exception as e:
+            logger.error(f"Feedback insert error: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to submit feedback: {e}")
+
     @fastapi_app.get("/user/settings")
     def get_user_profile(user_id: str):
         try:
@@ -750,88 +1029,326 @@ def fastapi_app_entrypoint():
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    @fastapi_app.post("/feedback")
-    def submit_feedback(req: FeedbackRequest):
-        try:
-            import uuid
-            def safe_uuid(val: str | None) -> str | None:
-                if not val:
-                    return None
-                try:
-                    return str(uuid.UUID(val))
-                except Exception:
-                    return None
 
-            valid_user_id = safe_uuid(req.user_id)
-            valid_log_id = safe_uuid(req.log_id)
 
-            payload = {
-                "rating": req.rating,
-                "correction_text": req.correction_text
-            }
-            if valid_user_id:
-                payload["user_id"] = valid_user_id
-            if valid_log_id:
-                payload["log_id"] = valid_log_id
+    # ─────────────────────────────────────────────────────────────────────────
+    # ADMIN ENDPOINTS  (all require Authorization: Bearer <ADMIN_API_KEY>)
+    # ─────────────────────────────────────────────────────────────────────────
 
-            supabase.table("query_feedback").insert(payload).execute()
-            return {"status": "success"}
-        except Exception as e:
-            logger.warning(f"Feedback insert warning: {e}")
-            return {"status": "success", "note": "fallback"}
+    def _require_admin(authorization: Optional[str] = None):
+        if not verify_admin_key(authorization):
+            raise HTTPException(status_code=401, detail="Admin API key required. Set Authorization: Bearer <ADMIN_API_KEY>.")
 
     @fastapi_app.get("/admin/metrics")
-    def get_admin_metrics():
+    def get_admin_metrics(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        topic: Optional[str] = None,
+        provider: Optional[str] = None,
+        query_type: Optional[str] = None,
+        hour_start: Optional[int] = None,
+        hour_end: Optional[int] = None,
+        authorization: Optional[str] = Header(default=None),
+    ):
+        _require_admin(authorization)
         try:
-            logs_res = supabase.table("query_interaction_logs").select("*").order("timestamp", desc=True).limit(100).execute()
-            logs = logs_res.data if logs_res.data else []
+            from datetime import datetime, timedelta, timezone as tz
+            end_dt   = end_date   or datetime.now(tz.utc).date().isoformat()
+            start_dt = start_date or (datetime.now(tz.utc).date() - timedelta(days=30)).isoformat()
 
-            total_queries = len(logs)
-            cache_hits = sum(1 for l in logs if l.get("cache_hit"))
+            q = supabase.table("query_interaction_logs").select("*") \
+                .gte("timestamp", f"{start_dt}T00:00:00Z") \
+                .lte("timestamp", f"{end_dt}T23:59:59Z") \
+                .order("timestamp", desc=True).limit(2000)
+            if topic:       q = q.eq("topic_category", topic)
+            if provider:    q = q.eq("provider_used", provider)
+            if query_type:  q = q.eq("query_type", query_type)
+            logs_res = q.execute()
+            logs = logs_res.data or []
+
+            if hour_start is not None or hour_end is not None:
+                hs, he = (hour_start or 0), (hour_end or 23)
+                def in_hour(row):
+                    try:
+                        ts = datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00"))
+                        return hs <= ts.hour <= he
+                    except Exception:
+                        return True
+                logs = [l for l in logs if in_hour(l)]
+
+            total_queries  = len(logs)
+            cache_hits     = sum(1 for l in logs if l.get("cache_hit"))
             guardian_fails = sum(1 for l in logs if not l.get("guardian_passed"))
+            fallback_count = sum(1 for l in logs if l.get("synthesis_source") == "general_knowledge_fallback")
 
-            latencies = [l.get("latency_ms", 0) for l in logs if l.get("latency_ms")]
-            latencies.sort()
+            user_ids = set()
+            for l in logs:
+                if l.get("user_id"):           user_ids.add(str(l["user_id"]))
+                elif l.get("guest_session_id"): user_ids.add(f"guest:{l['guest_session_id']}")
+            guest_queries = sum(1 for l in logs if not l.get("user_id"))
 
-            p50 = latencies[int(len(latencies)*0.5)] if latencies else 0
-            p95 = latencies[int(len(latencies)*0.95)] if latencies else 0
+            lats = sorted([l.get("latency_ms", 0) for l in logs if l.get("latency_ms")])
+            def pct(arr, p): return arr[min(int(len(arr)*p//100), len(arr)-1)] if arr else 0
+            p50, p95, p99 = pct(lats, 50), pct(lats, 95), pct(lats, 99)
 
-            guardian_avg = sum(l.get("guardian_ms", 0) for l in logs if l.get("guardian_ms")) / max(total_queries, 1)
-            architect_avg = sum(l.get("architect_ms", 0) for l in logs if l.get("architect_ms")) / max(total_queries, 1)
-            retrieval_avg = sum(l.get("retrieval_ms", 0) for l in logs if l.get("retrieval_ms")) / max(total_queries, 1)
-            synthesis_avg = sum(l.get("synthesis_ms", 0) for l in logs if l.get("synthesis_ms")) / max(total_queries, 1)
+            tq = max(total_queries, 1)
+            def stage_avg(field): return sum(l.get(field, 0) or 0 for l in logs) / tq
 
-            fb_res = supabase.table("query_feedback").select("feedback_id, rating, correction_text, created_at, user_id").order("created_at", desc=True).limit(20).execute()
-            fb_data = fb_res.data or []
-            ratings = [f.get("rating") for f in fb_data if f.get("rating")]
-            upvotes = sum(1 for r in ratings if r == 1)
+            total_tokens   = sum(l.get("total_tokens_used", 0) or 0 for l in logs)
+            total_in_tok   = sum(l.get("input_tokens", 0) or 0 for l in logs)
+            total_out_tok  = sum(l.get("output_tokens", 0) or 0 for l in logs)
+            total_cost     = sum(l.get("estimated_cost_usd", 0.0) or 0.0 for l in logs)
+
+            cost_by_prov = {}
+            topic_dist, qtype_dist = {}, {}
+            ts_map = {}
+            hm_map = {}
+
+            for l in logs:
+                pv = l.get("provider_used") or "unknown"
+                cost_by_prov[pv] = round(cost_by_prov.get(pv, 0.0) + (l.get("estimated_cost_usd") or 0.0), 6)
+                t  = l.get("topic_category") or "general"
+                topic_dist[t] = topic_dist.get(t, 0) + 1
+                qt = l.get("query_type") or "unknown"
+                qtype_dist[qt] = qtype_dist.get(qt, 0) + 1
+                try:
+                    day = l["timestamp"][:10]
+                    e = ts_map.setdefault(day, {"day": day, "total_queries": 0, "cache_hits": 0,
+                                                "lat_sum": 0, "lat_n": 0, "tokens": 0, "cost": 0.0})
+                    e["total_queries"] += 1
+                    if l.get("cache_hit"): e["cache_hits"] += 1
+                    if l.get("latency_ms"): e["lat_sum"] += l["latency_ms"]; e["lat_n"] += 1
+                    e["tokens"] += l.get("total_tokens_used", 0) or 0
+                    e["cost"]   += l.get("estimated_cost_usd", 0.0) or 0.0
+                except Exception: pass
+                try:
+                    ts = datetime.fromisoformat(l["timestamp"].replace("Z", "+00:00"))
+                    k  = (ts.weekday(), ts.hour)
+                    he = hm_map.setdefault(k, {"day_of_week": k[0], "hour_utc": k[1],
+                                               "query_count": 0, "cache_hits": 0, "lat_sum": 0, "lat_n": 0})
+                    he["query_count"] += 1
+                    if l.get("cache_hit"): he["cache_hits"] += 1
+                    if l.get("latency_ms"): he["lat_sum"] += l["latency_ms"]; he["lat_n"] += 1
+                except Exception: pass
+
+            timeseries = [{"day": d, "total_queries": e["total_queries"], "cache_hits": e["cache_hits"],
+                           "avg_latency_ms": round(e["lat_sum"] / (e["lat_n"] or 1), 1),
+                           "total_tokens": e["tokens"], "estimated_cost_usd": round(e["cost"], 6)}
+                          for d, e in sorted(ts_map.items())]
+            hourly_heatmap = [{"day_of_week": e["day_of_week"], "hour_utc": e["hour_utc"],
+                               "query_count": e["query_count"], "cache_hits": e["cache_hits"],
+                               "avg_latency_ms": round(e["lat_sum"] / (e["lat_n"] or 1), 1)}
+                              for e in sorted(hm_map.values(), key=lambda x: (x["day_of_week"], x["hour_utc"]))]
+
+            fb_res  = supabase.table("query_feedback").select("feedback_id,rating,correction_text,created_at,user_id,log_id") \
+                .order("created_at", desc=True).limit(100).execute()
+            fb_data   = fb_res.data or []
+            if fb_data:
+                u_ids = list(set([f["user_id"] for f in fb_data if f.get("user_id")]))
+                if u_ids:
+                    try:
+                        users_res = supabase.table("user_profiles").select("user_id, email, full_name").in_("user_id", u_ids).execute()
+                        umap = {u["user_id"]: u.get("email") or u.get("full_name") for u in (users_res.data or [])}
+                        for f in fb_data:
+                            if f.get("user_id") in umap:
+                                f["user_email"] = umap[f["user_id"]]
+                    except Exception as umap_err:
+                        logger.warning(f"Failed to map user emails: {umap_err}")
+            ratings   = [f.get("rating") for f in fb_data if f.get("rating")]
+            upvotes   = sum(1 for r in ratings if r == 1)
             downvotes = sum(1 for r in ratings if r == -1)
 
-            eval_res = supabase.table("evaluation_runs").select("*").order("timestamp", desc=True).limit(5).execute()
-            eval_runs = eval_res.data or []
+            ragas_res = supabase.table("production_eval_scores").select("*").order("timestamp", desc=True).limit(20).execute()
+            alerts_res = supabase.table("system_alerts").select("*").eq("resolved", False).order("created_at", desc=True).limit(10).execute()
+            eval_res   = supabase.table("evaluation_runs").select("*").order("timestamp", desc=True).limit(10).execute()
 
             return {
-                "total_queries": total_queries,
-                "cache_hit_rate_pct": round((cache_hits / max(total_queries, 1)) * 100, 1),
-                "guardian_pass_rate_pct": round(((total_queries - guardian_fails) / max(total_queries, 1)) * 100, 1),
-                "p50_latency_ms": p50,
-                "p95_latency_ms": p95,
+                "filter_state": {"start_date": start_dt, "end_date": end_dt, "topic": topic,
+                                 "provider": provider, "query_type": query_type,
+                                 "hour_start": hour_start, "hour_end": hour_end},
+                "total_queries": total_queries, "unique_users": len(user_ids),
+                "guest_queries": guest_queries,
+                "cache_hit_rate_pct":     round((cache_hits / tq) * 100, 1),
+                "guardian_pass_rate_pct": round(((total_queries - guardian_fails) / tq) * 100, 1),
+                "fallback_rate_pct":      round((fallback_count / tq) * 100, 1),
+                "p50_latency_ms": p50, "p95_latency_ms": p95, "p99_latency_ms": p99,
                 "stage_latency_averages": {
-                    "guardian_ms": round(guardian_avg, 1),
-                    "architect_ms": round(architect_avg, 1),
-                    "retrieval_ms": round(retrieval_avg, 1),
-                    "synthesis_ms": round(synthesis_avg, 1)
+                    "guardian_ms":  round(stage_avg("guardian_ms"), 1),
+                    "architect_ms": round(stage_avg("architect_ms"), 1),
+                    "retrieval_ms": round(stage_avg("retrieval_ms"), 1),
+                    "synthesis_ms": round(stage_avg("synthesis_ms"), 1),
                 },
-                "user_feedback": {
-                    "upvotes": upvotes,
-                    "downvotes": downvotes,
-                    "satisfaction_pct": round((upvotes / max(upvotes + downvotes, 1)) * 100, 1)
-                },
-                "recent_evaluations": eval_runs,
-                "recent_feedback": fb_data
+                "total_tokens_used": total_tokens, "total_input_tokens": total_in_tok,
+                "total_output_tokens": total_out_tok,
+                "estimated_total_cost_usd": round(total_cost, 4),
+                "cost_by_provider":        cost_by_prov,
+                "topic_distribution":      topic_dist,
+                "query_type_distribution": qtype_dist,
+                "timeseries":              timeseries,
+                "hourly_heatmap":          hourly_heatmap,
+                "user_feedback": {"upvotes": upvotes, "downvotes": downvotes,
+                                  "satisfaction_pct": round((upvotes / max(upvotes+downvotes, 1)) * 100, 1)},
+                "recent_evaluations": eval_res.data or [],
+                "recent_feedback":    fb_data,
+                "ragas_scores":       ragas_res.data or [],
+                "system_alerts":      alerts_res.data or [],
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+
+    @fastapi_app.get("/admin/users")
+    def get_admin_users(
+        start_date: Optional[str] = None, end_date: Optional[str] = None,
+        page: int = 1, limit: int = 25,
+        authorization: Optional[str] = Header(default=None),
+    ):
+        _require_admin(authorization)
+        try:
+            from datetime import datetime, timedelta, timezone as tz
+            end_dt   = end_date   or datetime.now(tz.utc).date().isoformat()
+            start_dt = start_date or (datetime.now(tz.utc).date() - timedelta(days=30)).isoformat()
+            result = supabase.rpc("get_user_cost_breakdown", {
+                "p_start_date": start_dt, "p_end_date": end_dt, "p_limit": limit * page,
+            }).execute()
+            all_rows = result.data or []
+            offset = (page - 1) * limit
+            return {"users": all_rows[offset:offset+limit], "total": len(all_rows),
+                    "page": page, "limit": limit, "start_date": start_dt, "end_date": end_dt}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @fastapi_app.get("/admin/topics")
+    def get_admin_topics(authorization: Optional[str] = Header(default=None)):
+        _require_admin(authorization)
+        try:
+            taxonomy = supabase.table("topic_taxonomy").select("*").order("sort_order").execute()
+            counts_res = supabase.table("query_interaction_logs").select("topic_category").execute()
+            counts: dict = {}
+            for row in (counts_res.data or []):
+                t = row.get("topic_category") or "general"
+                counts[t] = counts.get(t, 0) + 1
+            topics_out = []
+            for t in (taxonomy.data or []):
+                t["query_count"] = counts.get(t["topic_id"], 0)
+                topics_out.append(t)
+            return {"topics": topics_out}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @fastapi_app.get("/admin/documents/popular")
+    def get_popular_documents(limit: int = 20, authorization: Optional[str] = Header(default=None)):
+        _require_admin(authorization)
+        try:
+            res = supabase.table("popular_documents").select("*").order("query_count", desc=True).limit(limit).execute()
+            return {"documents": res.data or []}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @fastapi_app.get("/admin/cache/stats")
+    def get_cache_stats(authorization: Optional[str] = Header(default=None)):
+        _require_admin(authorization)
+        try:
+            stats = supabase.table("semantic_cache").select("cache_id,created_at").order("created_at").execute()
+            entries = stats.data or []
+            return {
+                "total_entries":      len(entries),
+                "oldest_entry_at":    entries[0]["created_at"] if entries else None,
+                "newest_entry_at":    entries[-1]["created_at"] if entries else None,
+                "cost_per_1m_tokens": COST_PER_1M_TOKENS,
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @fastapi_app.post("/admin/cache/clear")
+    def clear_semantic_cache(authorization: Optional[str] = Header(default=None)):
+        _require_admin(authorization)
+        try:
+            supabase.table("semantic_cache").delete().neq("cache_id", "00000000-0000-0000-0000-000000000000").execute()
+            logger.info("⚠️ Semantic cache cleared by admin.")
+            return {"status": "cleared", "message": "Semantic cache has been cleared."}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @fastapi_app.get("/admin/alerts")
+    def get_system_alerts(resolved: bool = False, authorization: Optional[str] = Header(default=None)):
+        _require_admin(authorization)
+        try:
+            res = supabase.table("system_alerts").select("*").eq("resolved", resolved) \
+                .order("created_at", desc=True).limit(50).execute()
+            return {"alerts": res.data or []}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @fastapi_app.post("/admin/alerts/{alert_id}/resolve")
+    def resolve_alert(alert_id: str, authorization: Optional[str] = Header(default=None)):
+        _require_admin(authorization)
+        try:
+            from datetime import datetime, timezone as tz
+            supabase.table("system_alerts").update(
+                {"resolved": True, "resolved_at": datetime.now(tz.utc).isoformat()}
+            ).eq("alert_id", alert_id).execute()
+            return {"status": "resolved"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @fastapi_app.get("/admin/evaluations")
+    def get_evaluation_history(
+        limit: int = 20, page: int = 1,
+        authorization: Optional[str] = Header(default=None),
+    ):
+        _require_admin(authorization)
+        try:
+            offset = (page - 1) * limit
+            eval_res  = supabase.table("evaluation_runs").select("*").order("timestamp", desc=True) \
+                .range(offset, offset+limit-1).execute()
+            ragas_res = supabase.table("production_eval_scores").select("*").order("timestamp", desc=True).limit(50).execute()
+            ragas_data = ragas_res.data or []
+            def avgf(field): vals=[r[field] for r in ragas_data if r.get(field) is not None]; return round(sum(vals)/len(vals),4) if vals else None
+            return {
+                "evaluation_runs": eval_res.data or [],
+                "page": page, "limit": limit,
+                "production_ragas": {
+                    "sample_count": len(ragas_data),
+                    "avg_faithfulness":       avgf("faithfulness"),
+                    "avg_answer_relevance":   avgf("answer_relevance"),
+                    "avg_context_precision":  avgf("context_precision"),
+                    "avg_overall_score":      avgf("overall_score"),
+                    "recent_scores":          ragas_data[:20],
+                },
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @fastapi_app.get("/admin/export/csv")
+    def export_query_logs_csv(
+        start_date: Optional[str] = None, end_date: Optional[str] = None,
+        authorization: Optional[str] = Header(default=None),
+    ):
+        _require_admin(authorization)
+        try:
+            import csv, io
+            from fastapi.responses import StreamingResponse
+            from datetime import datetime, timedelta, timezone as tz
+            end_dt   = end_date   or datetime.now(tz.utc).date().isoformat()
+            start_dt = start_date or (datetime.now(tz.utc).date() - timedelta(days=30)).isoformat()
+            rows = supabase.table("query_interaction_logs") \
+                .select("log_id,timestamp,session_id,original_query,guardian_passed,topic_category,provider_used,synthesis_source,total_tokens_used,estimated_cost_usd,latency_ms,cache_hit,search_mode") \
+                .gte("timestamp", f"{start_dt}T00:00:00Z").lte("timestamp", f"{end_dt}T23:59:59Z") \
+                .order("timestamp").limit(5000).execute().data or []
+            buf = io.StringIO()
+            if rows:
+                writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+                writer.writeheader(); writer.writerows(rows)
+            buf.seek(0)
+            filename = f"acaicia_logs_{start_dt}_to_{end_dt}.csv"
+            return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename={filename}"})
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # QUERY ENDPOINTS
+    # ─────────────────────────────────────────────────────────────────────────
 
     @fastapi_app.post("/query")
     def handle_query(request: QueryRequest):
@@ -844,14 +1361,13 @@ def fastapi_app_entrypoint():
             with open(status_path, "w") as f:
                 json.dump({"status": "processing", "query_id": query_id, "original_query": request.query}, f)
             vol.commit()
-
             process_query_async.spawn(
                 query_id, request.query,
                 session_id=request.session_id,
                 user_id=request.user_id,
+                guest_session_id=request.guest_session_id,
                 conversation_history=request.conversation_history,
             )
-
             return {"query_id": query_id, "status": "processing"}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to initialize query processing: {e}")
@@ -866,7 +1382,11 @@ def fastapi_app_entrypoint():
             with open(status_path, "r") as f:
                 data = json.load(f)
             return data
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
     return fastapi_app
+
+

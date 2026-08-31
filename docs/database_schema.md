@@ -59,16 +59,69 @@ erDiagram
     query_interaction_logs {
         uuid log_id PK
         uuid user_id FK
+        text guest_session_id
         text original_query
         boolean guardian_passed
         text architect_query
         boolean cache_hit
+        text topic_category
+        text query_type
+        text provider_used
+        float estimated_cost_usd
+        integer input_tokens
+        integer output_tokens
         integer guardian_ms
         integer architect_ms
         integer retrieval_ms
         integer synthesis_ms
         integer total_tokens_used
         integer latency_ms
+    }
+
+    topic_taxonomy {
+        text topic_id PK
+        text label
+        text[] keywords
+        text icon
+        smallint sort_order
+    }
+
+    analytics_daily_summary {
+        date day PK
+        integer total_queries
+        integer unique_users
+        integer cache_hits
+        float avg_latency_ms
+        float estimated_cost_usd
+        jsonb cost_by_provider
+        jsonb topic_distribution
+    }
+
+    hourly_activity {
+        date day PK
+        smallint hour_utc PK
+        smallint day_of_week
+        integer query_count
+        integer cache_hits
+        float avg_latency_ms
+    }
+
+    production_eval_scores {
+        uuid eval_id PK
+        uuid log_id FK
+        float faithfulness
+        float answer_relevance
+        float context_precision
+        float overall_score
+        text judge_model
+    }
+
+    system_alerts {
+        uuid alert_id PK
+        text severity
+        text category
+        text message
+        boolean resolved
     }
 
     query_chunk_logs {
@@ -91,6 +144,7 @@ erDiagram
         uuid cache_id PK
         text query_text
         vector_768 query_embedding
+        text stored_embedding_text
         text response_text
         jsonb sources
     }
@@ -108,7 +162,7 @@ erDiagram
 
 ---
 
-## Stored Functions (RPC)
+## Stored Functions (RPC) & Views
 
 ### 1. `match_documents_hybrid` (Reciprocal Rank Fusion)
 Combines dense vector similarity (`<=> query_embedding`) with PostgreSQL full-text search (`to_tsvector` / `websearch_to_tsquery`) using Reciprocal Rank Fusion:
@@ -118,7 +172,23 @@ This function ensures exact matches on DOIs, species names, dates, and geographi
 ### 2. `match_semantic_cache`
 Queries `semantic_cache` using HNSW cosine distance (`1 - (query_embedding <=> cache_embedding)`). If similarity >= 0.95, returns stored answer and citations instantly.
 
+### 3. `get_analytics_timeseries` (Parametric Daily Time-Series)
+Aggregates query volume, cache hits, latencies, tokens, and estimated USD costs filtered by start date, end date, topic, provider, and query type.
+
+### 4. `get_user_cost_breakdown` (Per-User Cost Breakdown)
+Aggregates queries, cache hits, token usage, estimated costs, satisfaction ratings, and dominant topic per user (registered user or anonymous guest session).
+
+### 5. `get_hourly_heatmap` (7×24 Time-of-Day Activity)
+Calculates query volume, cache hits, and latencies grouped by hour of day (0-23) and day of week (0=Sunday..6=Saturday).
+
+### 6. `popular_documents` (View)
+Ranks documents catalog entries by total retrieval count in `query_chunk_logs` and average RRF score.
+
 ---
 
 ## Database Migrations
-All new tables, indices, and stored functions are defined in [database/migrations/001_add_auth_and_telemetry.sql](../database/migrations/001_add_auth_and_telemetry.sql). Execute this SQL file in your Supabase SQL Editor to initialize or upgrade your database schema.
+Run SQL migrations in order in your Supabase SQL Editor:
+- [001_add_auth_and_telemetry.sql](../database_schema.sql) — User profiles, conversation history, telemetry, RRF retrieval.
+- [002_fix_semantic_cache.sql](../database/migrations/002_fix_semantic_cache.sql) — Add comma-separated embedding text representation.
+- [003_advanced_analytics.sql](../database/migrations/003_advanced_analytics.sql) — Analytics schema, topic taxonomy, cost tracking, RAGAS scores, alerts, and views.
+

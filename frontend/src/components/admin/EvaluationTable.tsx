@@ -36,10 +36,10 @@ export const EvaluationTable: React.FC<EvaluationTableProps> = ({ evaluations })
           <table className="w-full text-left text-xs text-gray-300">
             <thead className="bg-forest-900/80 text-gray-400 font-mono text-[11px] uppercase tracking-wider border-b border-forest-800">
               <tr>
-                <th className="py-2.5 px-3">Timestamp</th>
-                <th className="py-2.5 px-3">Faithfulness</th>
-                <th className="py-2.5 px-3">Answer Relevance</th>
-                <th className="py-2.5 px-3">Context Recall</th>
+                <th className="py-2.5 px-3">Dataset / Timestamp</th>
+                <th className="py-2.5 px-3">Hit Rate @ 5</th>
+                <th className="py-2.5 px-3">Context Precision</th>
+                <th className="py-2.5 px-3">Avg Latency</th>
                 <th className="py-2.5 px-3 text-right">Status</th>
               </tr>
             </thead>
@@ -54,22 +54,31 @@ export const EvaluationTable: React.FC<EvaluationTableProps> = ({ evaluations })
                     })
                   : `Run #${idx + 1}`;
 
+                const isPassed = run.passed !== undefined 
+                  ? run.passed 
+                  : (run.hit_rate_at_5 !== undefined ? run.hit_rate_at_5 >= 80 : true);
+
+                const hitScore = run.hit_rate_at_5 !== undefined ? run.hit_rate_at_5 : run.faithfulness_score;
+                const precScore = run.context_precision !== undefined ? run.context_precision : run.answer_relevance_score;
+                const latency = run.avg_latency_ms ? `${(run.avg_latency_ms / 1000).toFixed(1)}s` : 'N/A';
+
                 return (
                   <tr key={idx} className="hover:bg-forest-800/50 transition-colors">
                     <td className="py-3 px-3 text-gray-200 font-sans font-medium whitespace-nowrap">
-                      {formattedDate}
+                      <div>{run.dataset_name || 'Benchmark Run'}</div>
+                      <div className="text-[10px] text-gray-400 font-mono">{formattedDate} • n={run.num_questions || 5}</div>
                     </td>
                     <td className="py-3 px-3 font-semibold text-emerald-300">
-                      {formatScore(run.faithfulness_score)}
+                      {formatScore(hitScore ?? 0)}
                     </td>
                     <td className="py-3 px-3 font-semibold text-teal-300">
-                      {formatScore(run.answer_relevance_score)}
+                      {formatScore(precScore ?? 0)}
                     </td>
                     <td className="py-3 px-3 font-semibold text-blue-300">
-                      {formatScore(run.context_recall_score)}
+                      {latency}
                     </td>
                     <td className="py-3 px-3 text-right whitespace-nowrap">
-                      {run.passed ? (
+                      {isPassed ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/60 text-emerald-300 border border-emerald-500/40">
                           <CheckCircle2 className="w-3 h-3 text-emerald-400" /> PASS
                         </span>

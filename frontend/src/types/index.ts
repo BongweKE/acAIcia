@@ -40,7 +40,7 @@ export interface UserProfileRequest {
 }
 
 export interface FeedbackRequest {
-  log_id: string;
+  log_id?: string;
   user_id?: string;
   rating: 1 | -1;
   correction_text?: string;
@@ -60,11 +60,18 @@ export interface UserFeedbackMetrics {
 }
 
 export interface EvaluationRun {
+  run_id?: string;
   timestamp: string;
-  faithfulness_score: number;
-  answer_relevance_score: number;
-  context_recall_score: number;
-  passed: boolean;
+  dataset_name?: string;
+  num_questions?: number;
+  hit_rate_at_5?: number;
+  context_precision?: number;
+  avg_latency_ms?: number;
+  model_provider?: string;
+  faithfulness_score?: number;
+  answer_relevance_score?: number;
+  context_recall_score?: number;
+  passed?: boolean;
 }
 
 export interface FeedbackEntry {
@@ -76,21 +83,135 @@ export interface FeedbackEntry {
 }
 
 export interface AdminMetricsResponse {
+  filter_state: {
+    start_date: string;
+    end_date: string;
+    topic?: string;
+    provider?: string;
+    query_type?: string;
+    hour_start?: number;
+    hour_end?: number;
+  };
   total_queries: number;
+  unique_users: number;
+  guest_queries: number;
   cache_hit_rate_pct: number;
   guardian_pass_rate_pct: number;
+  fallback_rate_pct: number;
   p50_latency_ms: number;
   p95_latency_ms: number;
+  p99_latency_ms: number;
   stage_latency_averages: StageLatencyAverages;
+  total_tokens_used: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  estimated_total_cost_usd: number;
+  cost_by_provider: Record<string, number>;
+  topic_distribution: Record<string, number>;
+  query_type_distribution: Record<string, number>;
+  timeseries: TimeSeriesPoint[];
+  hourly_heatmap: HeatmapPoint[];
   user_feedback: UserFeedbackMetrics;
   recent_evaluations: EvaluationRun[];
   recent_feedback?: FeedbackEntry[];
+  ragas_scores?: RAGASScore[];
+  system_alerts?: SystemAlert[];
+}
+
+// ─── NEW ANALYTICS TYPES ───────────────────────────────────────────────────
+
+export interface AdminFilters {
+  dateRange: '1d' | '7d' | '30d' | '90d' | 'custom';
+  startDate?: string;
+  endDate?: string;
+  topic?: string;
+  provider?: string;
+  queryType?: string;
+  hourStart?: number;
+  hourEnd?: number;
+}
+
+export interface TimeSeriesPoint {
+  day: string;
+  total_queries: number;
+  cache_hits: number;
+  avg_latency_ms: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+}
+
+export interface HeatmapPoint {
+  day_of_week: number; // 0=Mon..6=Sun
+  hour_utc: number;
+  query_count: number;
+  cache_hits: number;
+  avg_latency_ms: number;
+}
+
+export interface UserCostEntry {
+  user_key: string;
+  email?: string;
+  total_queries: number;
+  cache_hits: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  avg_satisfaction?: number;
+  top_topic?: string;
+}
+
+export interface PopularDocument {
+  document_id: string;
+  title: string;
+  doi?: string;
+  authors?: string[];
+  publication_year?: number;
+  query_count: number;
+  avg_rrf_score: number;
+  last_retrieved_at?: string;
+}
+
+export interface TopicEntry {
+  topic_id: string;
+  label: string;
+  icon?: string;
+  query_count: number;
+}
+
+export interface RAGASScore {
+  eval_id: string;
+  timestamp: string;
+  faithfulness?: number;
+  answer_relevance?: number;
+  context_precision?: number;
+  overall_score?: number;
+  judge_model?: string;
+}
+
+export interface SystemAlert {
+  alert_id: string;
+  created_at: string;
+  severity: 'info' | 'warning' | 'error';
+  category: string;
+  message: string;
+  value?: number;
+  threshold?: number;
+  resolved: boolean;
+}
+
+export interface ProductionRAGAS {
+  sample_count: number;
+  avg_faithfulness?: number;
+  avg_answer_relevance?: number;
+  avg_context_precision?: number;
+  avg_overall_score?: number;
+  recent_scores: RAGASScore[];
 }
 
 export interface QueryRequest {
   query: string;
   session_id?: string;
   user_id?: string;
+  guest_session_id?: string;
   conversation_history?: Array<{
     role: string;
     content: string;

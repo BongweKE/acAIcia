@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useChat } from '../../context/ChatContext';
-import { X, MessageSquare, ThumbsUp, ThumbsDown, Send, FileWarning, Sparkles } from 'lucide-react';
+import { X, ThumbsUp, ThumbsDown, Send, FileWarning, Sparkles } from 'lucide-react';
 
 const CITATION_PRESETS = [
   "Inline [Author, Year] citation is missing or incomplete",
@@ -38,35 +38,36 @@ export const FeedbackModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg bg-forest-900 border border-forest-700/80 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-        <div className="h-1.5 bg-gradient-to-r from-emerald-500 via-teal-400 to-amber-500" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative w-full max-w-lg bg-card border border-border rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 text-card-foreground">
+        <div className="h-1.5 bg-accent" />
 
         <div className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="p-2 bg-emerald-500/10 rounded-xl border border-emerald-500/30">
-                <FileWarning className="w-5 h-5 text-emerald-400" />
+              <div className="p-2 bg-accent/10 rounded-lg text-accent">
+                <FileWarning className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-white font-sans">Submit Response Feedback</h3>
-                <p className="text-xs text-gray-400">Help refine acAIcia RAG citations & evidence accuracy</p>
+                <h3 className="text-base font-semibold">Submit Response Feedback</h3>
+                <p className="text-xs text-muted-foreground">Help refine acAIcia RAG citations & evidence accuracy</p>
               </div>
             </div>
             <button
+              type="button"
               onClick={closeFeedbackModal}
-              className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-forest-800 transition-colors"
+              className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Target Response Preview */}
-          <div className="p-3 bg-forest-800/60 rounded-xl border border-forest-700/50 text-xs text-gray-300 space-y-1">
-            <div className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider">
+          <div className="p-3 bg-muted rounded-lg border border-border text-xs text-muted-foreground space-y-1">
+            <div className="text-[10px] font-semibold text-accent uppercase tracking-wider">
               Target Response Snippet
             </div>
-            <p className="line-clamp-2 font-mono text-[11px] leading-relaxed text-gray-300">
+            <p className="line-clamp-2 font-mono text-[11px] leading-relaxed">
               "{activeFeedbackMessage.content}"
             </p>
           </div>
@@ -74,8 +75,8 @@ export const FeedbackModal: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Quick Citation Feedback Presets */}
             <div>
-              <label className="block text-[11px] font-semibold text-gray-300 mb-1.5 uppercase tracking-wider flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-amber-400" />
+              <label className="block text-[11px] font-semibold text-muted-foreground mb-1.5 uppercase tracking-wider flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-accent" />
                 <span>Quick Citation & Issue Tags</span>
               </label>
               <div className="flex flex-wrap gap-1.5">
@@ -84,7 +85,7 @@ export const FeedbackModal: React.FC = () => {
                     key={idx}
                     type="button"
                     onClick={() => handlePresetClick(preset)}
-                    className="py-1 px-2.5 rounded-lg border border-forest-700/60 bg-forest-800/50 hover:bg-emerald-500/20 hover:border-emerald-500/40 text-[11px] text-gray-300 hover:text-emerald-300 transition-all text-left"
+                    className="py-1 px-2.5 rounded-md border border-border bg-background hover:bg-accent/10 hover:border-accent/40 text-[11px] text-muted-foreground hover:text-accent transition-all text-left"
                   >
                     + {preset}
                   </button>
@@ -94,17 +95,17 @@ export const FeedbackModal: React.FC = () => {
 
             {/* Rating Selector */}
             <div>
-              <label className="block text-[11px] font-semibold text-gray-300 mb-1.5 uppercase tracking-wider">
+              <label className="block text-[11px] font-semibold text-muted-foreground mb-1.5 uppercase tracking-wider">
                 Evaluation Rating
               </label>
               <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => setRating(1)}
-                  className={`flex-1 py-2 px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 transition-all ${
+                  className={`flex-1 py-2 px-3 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-all ${
                     rating === 1
-                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-glow'
-                      : 'bg-forest-800/40 border-forest-700 text-gray-400 hover:text-white'
+                      ? 'bg-accent/10 border-accent text-accent font-semibold'
+                      : 'bg-background border-border text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   <ThumbsUp className="w-4 h-4" />
@@ -114,10 +115,10 @@ export const FeedbackModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setRating(-1)}
-                  className={`flex-1 py-2 px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 transition-all ${
+                  className={`flex-1 py-2 px-3 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-all ${
                     rating === -1
-                      ? 'bg-rose-500/20 border-rose-500 text-rose-300 shadow-lg'
-                      : 'bg-forest-800/40 border-forest-700 text-gray-400 hover:text-white'
+                      ? 'bg-destructive/10 border-destructive text-destructive font-semibold'
+                      : 'bg-background border-border text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   <ThumbsDown className="w-4 h-4" />
@@ -128,7 +129,7 @@ export const FeedbackModal: React.FC = () => {
 
             {/* Detailed Feedback Input */}
             <div>
-              <label className="block text-[11px] font-semibold text-gray-300 mb-1.5 uppercase tracking-wider">
+              <label className="block text-[11px] font-semibold text-muted-foreground mb-1.5 uppercase tracking-wider">
                 Feedback / Citation Details
               </label>
               <textarea
@@ -136,7 +137,7 @@ export const FeedbackModal: React.FC = () => {
                 placeholder="Specific paper DOI, missing [Author, Year] citation, or scientific correction..."
                 value={correctionText}
                 onChange={(e) => setCorrectionText(e.target.value)}
-                className="w-full p-3 bg-forest-800/90 border border-forest-700 rounded-xl text-xs text-gray-100 placeholder-gray-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all resize-none"
+                className="w-full p-3 bg-background border border-input rounded-lg text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all resize-none"
               />
             </div>
 
@@ -144,14 +145,14 @@ export const FeedbackModal: React.FC = () => {
               <button
                 type="button"
                 onClick={closeFeedbackModal}
-                className="flex-1 py-2 px-4 bg-forest-800 hover:bg-forest-700 text-gray-300 font-semibold text-xs rounded-xl border border-forest-700 transition-colors"
+                className="flex-1 py-2 px-4 bg-muted hover:bg-muted/80 text-muted-foreground font-semibold text-xs rounded-lg border border-border transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="flex-1 py-2 px-4 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-forest-950 font-semibold text-xs rounded-xl transition-all shadow-glow flex items-center justify-center gap-1.5"
+                className="flex-1 py-2 px-4 bg-accent hover:bg-accent/90 text-accent-foreground font-semibold text-xs rounded-lg transition-all shadow flex items-center justify-center gap-1.5"
               >
                 <Send className="w-3.5 h-3.5" />
                 <span>{isSubmitting ? 'Sending...' : 'Submit Feedback'}</span>

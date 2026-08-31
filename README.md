@@ -18,7 +18,8 @@ We maintain comprehensive technical documentation for all major components in `A
 3. **[GPU Data Ingestion Pipeline](docs/data_ingestion.md)** — Parsing PDFs/DOCXs natively via cloud T4 GPUs into `pgvector` tensors.
 4. **[Database Schema (Supabase)](docs/database_schema.md)** — Relational document catalog, user profiles, feedback, cache, chunk logs, and `match_documents_hybrid` RPC.
 5. **[Frontend & Feature Guides](docs/frontend.md)** — Guides for React SPA components, Multi-Session History, Settings (`/settings`), In-Chat Feedback (`👍`/`👎`), and Admin Observability (`/admin`).
-6. **[Deployment & Setup Guide](docs/deployment_guide.md)** — Step-by-step instructions for syncing database secrets, Railway, and Modal deployments.
+6. **[Architectural Decision Records (ADRs)](docs/adrs/0001-landscape-alliance-design-system-and-top-nav-redesign.md)** — Record of architectural decisions (Design system redesign, machine UUID tracking, admin model governance).
+7. **[Deployment & Setup Guide](docs/deployment_guide.md)** — Step-by-step instructions for syncing database secrets, Railway, and Modal deployments.
 
 ---
 

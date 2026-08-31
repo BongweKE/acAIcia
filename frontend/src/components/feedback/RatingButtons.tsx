@@ -11,14 +11,12 @@ export const RatingButtons: React.FC<RatingButtonsProps> = ({ message }) => {
   const { openFeedbackModal, submitFeedback } = useChat();
   const [rated, setRated] = useState<'up' | 'down' | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [animateUp, setAnimateUp] = useState(false);
 
   const logId = message.queryId || message.id;
 
   const handleUpvote = async () => {
     if (isSubmitting) return;
 
-    // Toggle off if already upvoted
     if (rated === 'up') {
       setRated(null);
       return;
@@ -26,12 +24,10 @@ export const RatingButtons: React.FC<RatingButtonsProps> = ({ message }) => {
 
     try {
       setIsSubmitting(true);
-      setAnimateUp(true);
       setRated('up');
       await submitFeedback(logId, 1);
-      setTimeout(() => setAnimateUp(false), 500);
     } catch {
-      // Toast notification is handled in context
+      // Handled in context toast
     } finally {
       setIsSubmitting(false);
     }
@@ -42,56 +38,45 @@ export const RatingButtons: React.FC<RatingButtonsProps> = ({ message }) => {
     setRated('down');
   };
 
-  const handleCitationReport = () => {
-    openFeedbackModal(message);
-    setRated('down');
-  };
-
   return (
     <div className="flex items-center gap-1.5 pt-1">
-      {/* Upvote Button with Micro-Animation */}
       <button
+        type="button"
         onClick={handleUpvote}
         disabled={isSubmitting}
-        className={`p-1.5 rounded-lg border text-xs transition-all duration-200 flex items-center gap-1.5 ${
-          animateUp ? 'scale-125 ring-2 ring-emerald-400/50' : 'scale-100'
-        } ${
+        className={`p-1.5 rounded-lg border text-xs transition-colors flex items-center gap-1 ${
           rated === 'up'
-            ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/50 shadow-glow'
-            : 'bg-forest-800/40 hover:bg-forest-800/80 text-gray-400 hover:text-emerald-300 border-forest-700/50 hover:border-emerald-500/30'
+            ? 'bg-accent/10 text-accent border-accent/40 font-semibold'
+            : 'bg-card text-muted-foreground hover:text-foreground border-border hover:bg-muted'
         }`}
         title="Helpful & accurate response (Upvote)"
       >
-        {rated === 'up' ? (
-          <Check className="w-3.5 h-3.5 text-emerald-400 animate-in zoom-in-75 duration-150" />
-        ) : (
-          <ThumbsUp className="w-3.5 h-3.5 transition-transform group-hover:-rotate-12" />
-        )}
-        <span className="text-[11px] font-medium">{rated === 'up' ? 'Helpful' : ''}</span>
+        {rated === 'up' ? <Check className="w-3.5 h-3.5 text-accent" /> : <ThumbsUp className="w-3.5 h-3.5" />}
+        {rated === 'up' && <span className="text-[11px]">Helpful</span>}
       </button>
 
-      {/* Downvote / Correction Button */}
       <button
+        type="button"
         onClick={handleDownvote}
         disabled={isSubmitting}
-        className={`p-1.5 rounded-lg border text-xs transition-all duration-200 flex items-center gap-1.5 ${
+        className={`p-1.5 rounded-lg border text-xs transition-colors flex items-center gap-1 ${
           rated === 'down'
-            ? 'bg-rose-500/25 text-rose-300 border-rose-500/50 shadow-md'
-            : 'bg-forest-800/40 hover:bg-forest-800/80 text-gray-400 hover:text-rose-300 border-forest-700/50 hover:border-rose-500/30'
+            ? 'bg-destructive/10 text-destructive border-destructive/40 font-semibold'
+            : 'bg-card text-muted-foreground hover:text-foreground border-border hover:bg-muted'
         }`}
         title="Needs correction or feedback (Downvote)"
       >
         <ThumbsDown className="w-3.5 h-3.5" />
       </button>
 
-      {/* Report Citation Issue Overlay Button */}
       <button
-        onClick={handleCitationReport}
-        className="p-1.5 rounded-lg border border-forest-700/50 bg-forest-800/40 hover:bg-forest-800/80 text-gray-400 hover:text-amber-300 hover:border-amber-500/30 text-xs transition-all duration-200 flex items-center gap-1"
-        title="Report missing or incorrect citation ([Author, Year])"
+        type="button"
+        onClick={handleDownvote}
+        className="p-1.5 rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-muted text-xs transition-colors flex items-center gap-1"
+        title="Report citation feedback"
       >
-        <FileWarning className="w-3.5 h-3.5 text-amber-400/80" />
-        <span className="text-[11px] text-gray-400 hover:text-amber-300 hidden sm:inline">Citation Feedback</span>
+        <FileWarning className="w-3.5 h-3.5 text-accent" />
+        <span className="text-[11px] hidden sm:inline">Citation feedback</span>
       </button>
     </div>
   );

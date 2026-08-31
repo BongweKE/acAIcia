@@ -295,18 +295,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 1000);
   }, [addToast]);
 
+  const { guestSessionId } = useAuth();
+
   const submitUserQuery = useCallback(async (queryText: string) => {
     const trimmed = queryText.trim();
     if (!trimmed) return;
-
-    if (role === 'guest' && guestQueryCount <= 0) {
-      addToast('Guest query limit (20 max) reached. Please login as a researcher for unlimited access.', 'warning');
-      return;
-    }
-
-    if (role === 'guest') {
-      decrementGuestQueryCount();
-    }
 
     const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userMsgId = `user-${Date.now()}`;
@@ -356,8 +349,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await client.submitQuery({
         query: trimmed,
-        user_id: user?.email || 'guest',
         session_id: targetSessionId,
+        guest_session_id: guestSessionId,
         conversation_history: history,
       });
 

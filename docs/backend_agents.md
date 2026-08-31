@@ -87,6 +87,29 @@ Incoming queries are converted to vector embeddings and queried against `semanti
 
 ---
 
-## Admin Observability & Metrics Endpoints
-- `GET /admin/metrics`: Returns p50/p95 latency stats, stage-by-stage latency averages (`guardian_ms`, `architect_ms`, `retrieval_ms`, `synthesis_ms`), cache hit rate %, token costs, user feedback sentiment (+1 / -1 ratio), and recent evaluation benchmark runs.
+## Admin Observability & Analytics Platform
+
+acAIcia includes a comprehensive admin analytics backend supporting parametric filtering, cost attribution, query topic intelligence, time-of-day heatmaps, production RAGAS scoring, and exportable CSV reports:
+
+- `GET /admin/metrics`: Accepts parametric filters (`start_date`, `end_date`, `topic`, `provider`, `query_type`, `hour_start`, `hour_end`). Returns KPI metrics, token splits (input vs output), estimated USD costs, latency percentiles (P50, P95, P99), time-series breakdown, 7×24 hourly activity heatmap, user satisfaction %, and system alerts.
+- `GET /admin/users`: Paginated per-user cost & query breakdown (registered user email or anonymous guest session UUID).
+- `GET /admin/topics`: Returns domain taxonomy query counts and distribution across 9 core categories + general fallback.
+- `GET /admin/documents/popular`: Ranks most frequently retrieved internal documents with average Reciprocal Rank Fusion (RRF) scores.
+- `GET /admin/cache/stats` & `POST /admin/cache/clear`: Semantic cache statistics and truncation control.
+- `GET /admin/alerts` & `POST /admin/alerts/{alert_id}/resolve`: System health alerts (e.g. retrieval gap warnings when general fallback >15%).
+- `GET /admin/evaluations`: Paginated batch evaluation history + production RAGAS evaluation scores (Faithfulness, Answer Relevance, Context Precision).
+- `GET /admin/export/csv`: Streams full interaction logs in CSV format for funder reporting.
 - `POST /feedback`: Records inline upvote/downvote ratings and user corrections in `query_feedback`.
+
+### Topic Classification Subsystem
+Query topic classification uses a **hybrid keyword-first pass** matching 9 research domains (`peatlands`, `fire_management`, `food_systems`, `agroforestry`, `climate_change`, `soil_science`, `biodiversity`, `policy`, `methodology`). Unmatched queries fall back to **Modal Gemma** for LLM classification without incurring extra API costs.
+
+### Production RAGAS Scoring
+Approximately **5% of live production traffic** is probabilistically sampled and evaluated asynchronously by Modal Gemma for RAGAS metrics:
+- **Faithfulness** (0.0-1.0): Answer support by retrieved context.
+- **Answer Relevance** (0.0-1.0): Relevance of answer to query.
+- **Context Precision** (0.0-1.0): Relevance of retrieved document chunks.
+
+### Security & Authentication
+All `/admin/*` endpoints require an `Authorization: Bearer <ADMIN_API_KEY>` header when `ADMIN_API_KEY` is configured in Modal secrets.
+

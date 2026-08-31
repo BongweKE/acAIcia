@@ -3,17 +3,17 @@ import { useToast, ToastMessage } from '../../context/ToastContext';
 import { AlertCircle, CheckCircle2, Info, AlertTriangle, X } from 'lucide-react';
 
 const icons = {
-  success: <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />,
-  error: <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />,
-  warning: <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />,
-  info: <Info className="w-5 h-5 text-blue-400 shrink-0" />,
+  success: <CheckCircle2 className="w-5 h-5 text-accent shrink-0" />,
+  error: <AlertCircle className="w-5 h-5 text-destructive shrink-0" />,
+  warning: <AlertTriangle className="w-5 h-5 text-chart-4 shrink-0" />,
+  info: <Info className="w-5 h-5 text-chart-2 shrink-0" />,
 };
 
 const borderStyles = {
-  success: 'border-emerald-500/40 bg-forest-800/90 text-emerald-100',
-  error: 'border-rose-500/40 bg-forest-800/90 text-rose-100',
-  warning: 'border-amber-500/40 bg-forest-800/90 text-amber-100',
-  info: 'border-blue-500/40 bg-forest-800/90 text-blue-100',
+  success: 'border-accent/40 bg-card text-foreground',
+  error: 'border-destructive/40 bg-card text-foreground',
+  warning: 'border-chart-4/40 bg-card text-foreground',
+  info: 'border-chart-2/40 bg-card text-foreground',
 };
 
 export const ToastItem: React.FC<{ toast: ToastMessage }> = ({ toast }) => {
@@ -21,13 +21,14 @@ export const ToastItem: React.FC<{ toast: ToastMessage }> = ({ toast }) => {
 
   return (
     <div
-      className={`flex items-start gap-3 p-4 rounded-lg border backdrop-blur-md shadow-lg transition-all duration-300 max-w-md w-full ${borderStyles[toast.type]}`}
+      className={`flex items-start gap-3 p-4 rounded-xl border shadow-lg transition-all duration-300 max-w-md w-full ${borderStyles[toast.type]}`}
     >
       {icons[toast.type]}
       <div className="flex-1 text-sm font-medium leading-relaxed">{toast.message}</div>
       <button
+        type="button"
         onClick={() => removeToast(toast.id)}
-        className="text-gray-400 hover:text-white transition-colors p-1 rounded-md hover:bg-white/10"
+        className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md hover:bg-muted"
         aria-label="Close notification"
       >
         <X className="w-4 h-4" />

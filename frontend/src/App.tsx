@@ -1,51 +1,47 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { ChatProvider } from './context/ChatContext';
 import { Layout } from './components/layout/Layout';
-import { NavTab } from './components/layout/Sidebar';
-import { ChatPage } from './pages/ChatPage';
-import { InfoPage } from './pages/InfoPage';
+
+import { HomePage } from './pages/HomePage';
+import { AssistantPage } from './pages/AssistantPage';
+import { HowItWorksPage } from './pages/HowItWorksPage';
+import { AboutPage } from './pages/AboutPage';
+import { FeedbackPage } from './pages/FeedbackPage';
 import { AdminPage } from './pages/AdminPage';
 
-const AppContent: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<NavTab>('chat');
-
-  const renderActiveView = () => {
-    switch (activeTab) {
-      case 'chat':
-        return <ChatPage />;
-      case 'about':
-      case 'faqs':
-      case 'blogs':
-      case 'contact':
-        return <InfoPage tab={activeTab} onNavigateToChat={() => setActiveTab('chat')} onSelectTab={setActiveTab} />;
-      case 'admin':
-        return <AdminPage />;
-      default:
-        return <ChatPage />;
-    }
-  };
-
+const AppRoutes: React.FC = () => {
   return (
-    <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
-      {renderActiveView()}
+    <Layout>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/assistant" element={<AssistantPage />} />
+        <Route path="/how-it-works" element={<HowItWorksPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/feedback" element={<FeedbackPage />} />
+        <Route path="/admin" element={<AdminPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </Layout>
   );
 };
 
 export function App() {
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <SettingsProvider>
-          <ChatProvider>
-            <AppContent />
-          </ChatProvider>
-        </SettingsProvider>
-      </AuthProvider>
-    </ToastProvider>
+    <BrowserRouter>
+      <ToastProvider>
+        <AuthProvider>
+          <SettingsProvider>
+            <ChatProvider>
+              <AppRoutes />
+            </ChatProvider>
+          </SettingsProvider>
+        </AuthProvider>
+      </ToastProvider>
+    </BrowserRouter>
   );
 }
 

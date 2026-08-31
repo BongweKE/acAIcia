@@ -1,10 +1,11 @@
 import React from 'react';
-import { NavTab } from '../layout/Sidebar';
 import { AboutView } from './AboutView';
 import { FaqsView } from './FaqsView';
 import { BlogsView } from './BlogsView';
 import { ContactView } from './ContactView';
 import { Info, HelpCircle, BookOpen, Mail, ArrowRight } from 'lucide-react';
+
+export type NavTab = 'chat' | 'about' | 'faqs' | 'blogs' | 'contact' | 'admin';
 
 interface InfoViewProps {
   activeTab: NavTab;
@@ -41,18 +42,18 @@ export const InfoView: React.FC<InfoViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Tab Bar for Info Views */}
-      <div className="flex border-b border-forest-800 bg-forest-950/40 p-1.5 rounded-2xl overflow-x-auto">
+      <div className="flex border-b border-border bg-card p-1.5 rounded-xl overflow-x-auto">
         {tabs.map((tab) => {
           const isSelected = activeTab === tab.id;
           return (
             <button
               key={tab.id}
+              type="button"
               onClick={() => onSelectTab(tab.id)}
-              className={`py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all shrink-0 ${
+              className={`py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all shrink-0 ${
                 isSelected
-                  ? 'bg-emerald-500 text-forest-950 shadow-glow font-bold'
-                  : 'text-gray-400 hover:text-white hover:bg-forest-800/60'
+                  ? 'bg-accent text-accent-foreground shadow font-bold'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
               }`}
             >
               {tab.icon}
@@ -62,19 +63,18 @@ export const InfoView: React.FC<InfoViewProps> = ({
         })}
       </div>
 
-      {/* Rendered Info View Content */}
-      <div className="bg-forest-800/30 border border-forest-700/60 rounded-2xl p-6 shadow-xl">
+      <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
         {renderTabContent()}
       </div>
 
-      {/* Return to Chat Button */}
       {onNavigateToChat && (
         <div className="flex justify-end pt-2">
           <button
+            type="button"
             onClick={onNavigateToChat}
-            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-forest-950 font-bold text-xs rounded-xl transition-all shadow-glow flex items-center gap-2"
+            className="px-5 py-2.5 bg-accent hover:bg-accent/90 text-accent-foreground font-semibold text-xs rounded-lg transition-colors shadow flex items-center gap-2"
           >
-            <span>Launch RAG Research Assistant</span>
+            <span>Launch Research Assistant</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
