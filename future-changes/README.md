@@ -35,10 +35,10 @@ Each change is cross-referenced to a GitHub issue for tracking.
 | 3 | Cross-encoder reranker for hybrid retrieval | P1 | Phase 1 |
 | 4 | HyDE / multi-query expansion | P2 | Phase 2 |
 | 5 | Corrective RAG (CRAG) relevance gate | P2 | Phase 2 |
-| 6 | Re-architect pipeline with LangGraph | P2 | Phase 2 |
-| 7 | Semantic cache → native pgvector HNSW query | P2 | Phase 2 |
-| 8 | LLM observability (Langfuse / Phoenix) | P2 | Phase 2 |
-| 9 | Proper RAGAS / DeepEval eval suite + CI gate | P2 | Phase 2 |
-| 10 | Embeddings + chunking upgrade | P3 | Phase 3 |
-| 11 | Modularize `app.py` + remove dead infra | P3 | Phase 3 |
-| 12 | Structured outputs + retries for Guardian/Architect | P3 | Phase 3 |
+| 6 | Semantic cache → native pgvector HNSW query | P2 | Phase 2 |
+| 7 | LLM observability (Langfuse / Phoenix) | P2 | Phase 2 |
+| 8 | Proper RAGAS / DeepEval eval suite + CI gate | P2 | Phase 2 |
+| 9 | Embeddings + chunking upgrade | P3 | Phase 3 |
+| 10 | Modularize `app.py` + remove dead infra | P3 | Phase 3 |
+| 11 | Structured outputs + retries for Guardian/Architect | P3 | Phase 3 |
+| 12 | Re-architect pipeline with LangGraph | P2 | Phase 2 |

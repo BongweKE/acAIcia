@@ -44,10 +44,10 @@ changes but unlock compounding gains.
 |---|---|---|---|
 | 4 | [HyDE / multi-query expansion](https://github.com/BongweKE/acAIcia/issues/4) | S (2–4d) | hit@1 +3pp |
 | 5 | [Corrective RAG (CRAG) relevance gate](https://github.com/BongweKE/acAIcia/issues/5) | M (4–6d) | Faithfulness +0.05 |
-| 6 | [Re-architect with LangGraph](https://github.com/BongweKE/acAIcia/issues/6) | XL (8–12d) | Per-stage streaming, node retries, checkpoint resume |
-| 7 | [Semantic cache → native pgvector](https://github.com/BongweKE/acAIcia/issues/7) | S (2–3d) | Remove Python brute-force; cache scales to 10k+ |
-| 8 | [LLM observability (Langfuse)](https://github.com/BongweKE/acAIcia/issues/8) | M (3–5d) | Full trace per query in < 2 min |
-| 9 | [Eval suite (RAGAS/DeepEval)](https://github.com/BongweKE/acAIcia/issues/9) | M (4–6d) | CI blocks metric regression > 0.05 |
+| 6 | [Semantic cache → native pgvector](https://github.com/BongweKE/acAIcia/issues/6) | S (2–3d) | Remove Python brute-force; cache scales to 10k+ |
+| 7 | [LLM observability (Langfuse)](https://github.com/BongweKE/acAIcia/issues/7) | M (3–5d) | Full trace per query in < 2 min |
+| 8 | [Eval suite (RAGAS/DeepEval)](https://github.com/BongweKE/acAIcia/issues/8) | M (4–6d) | CI blocks metric regression > 0.05 |
+| 12 | [Re-architect with LangGraph](https://github.com/BongweKE/acAIcia/issues/12) | XL (8–12d) | Per-stage streaming, node retries, checkpoint resume |
 
 **Phase 2 success criteria**:
 - Pipeline is a LangGraph graph with streaming, retries, and conditional edges.
@@ -56,11 +56,11 @@ changes but unlock compounding gains.
 - Semantic cache uses native pgvector.
 
 **Suggested order within Phase 2**:
-1. **#7** (pgvector cache) — independent, quick win.
-2. **#8** (Langfuse) — quick win, improves debugging for everything else.
-3. **#6** (LangGraph) — the big one; do #1 first so streaming is available.
+1. **#6** (pgvector cache) — independent, quick win.
+2. **#7** (Langfuse) — quick win, improves debugging for everything else.
+3. **#12** (LangGraph) — the big one; do #1 first so streaming is available.
 4. **#4 + #5** (HyDE + CRAG) — add as new LangGraph nodes.
-5. **#9** (eval suite) — do last in Phase 2 to validate all changes.
+5. **#8** (eval suite) — do last in Phase 2 to validate all changes.
 
 ---
 
@@ -70,17 +70,17 @@ Deferred improvements. Lower urgency but high long-term value.
 
 | # | Issue | Effort | Metric |
 |---|---|---|---|
-| 10 | [Embeddings + chunking upgrade](https://github.com/BongweKE/acAIcia/issues/10) | L (6–10d) | hit@1 +5pp; multilingual support |
-| 11 | [Modularize app.py + cleanup](https://github.com/BongweKE/acAIcia/issues/11) | M (3–5d) | app.py < 200 lines |
-| 12 | [Structured outputs + retries](https://github.com/BongweKE/acAIcia/issues/12) | S (2–3d) | Zero malformed-output failures |
+| 9 | [Embeddings + chunking upgrade](https://github.com/BongweKE/acAIcia/issues/9) | L (6–10d) | hit@1 +5pp; multilingual support |
+| 10 | [Modularize app.py + cleanup](https://github.com/BongweKE/acAIcia/issues/10) | M (3–5d) | app.py < 200 lines |
+| 11 | [Structured outputs + retries](https://github.com/BongweKE/acAIcia/issues/11) | S (2–3d) | Zero malformed-output failures |
 
 **Phase 3 success criteria**:
 - Embedding model upgraded to bge-m3 with parent-child chunking.
 - `app.py` is routes-only; all logic in separate modules.
 - Guardian/Architect use JSON mode with retries.
 
-**Note**: #10 (embeddings) requires a re-embedding job (~30 min, ~$1)
-and schema migration. Do this alongside #11 (modularization) for a
+**Note**: #9 (embeddings) requires a re-embedding job (~30 min, ~$1)
+and schema migration. Do this alongside #10 (modularization) for a
 clean batch of infra changes.
 
 ---
@@ -94,7 +94,7 @@ These apply across all phases:
 - **CI gating**: Phase 2 introduces eval in CI. Phase 1 should add basic
   `pytest` to the deploy pipeline if not already present.
 - **Documentation**: update `AGENTS.md` and `docs/` after each phase.
-- **Monitoring**: after #8 (Langfuse), set up alerts for latency spikes,
+- **Monitoring**: after #7 (Langfuse), set up alerts for latency spikes,
   cost anomalies, and error rates.
 
 ---
@@ -116,10 +116,10 @@ These apply across all phases:
 ```
 Phase 1 (P1)     Phase 2 (P2)              Phase 3 (P3)
 ──────────────    ──────────────────────    ──────────────────────
-#1  Streaming     #7  pgvector cache        #10 Embeddings upgrade
-#2  LiteLLM       #8  Langfuse              #11 Modularize app.py
-#3  Reranker      #6  LangGraph             #12 Structured outputs
+#1  Streaming     #6  pgvector cache        #9  Embeddings upgrade
+#2  LiteLLM       #7  Langfuse              #10 Modularize app.py
+#3  Reranker      #12 LangGraph             #11 Structured outputs
                   #4  HyDE
                   #5  CRAG
-                  #9  Eval suite
+                  #8  Eval suite
 ```

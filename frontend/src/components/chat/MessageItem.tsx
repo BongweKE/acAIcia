@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ChatMessage } from '../../types';
 import { SourceCard } from './SourceCard';
 import { RatingButtons } from '../feedback/RatingButtons';
+import { LoadingMessage } from './LoadingMessage';
 import Markdown from 'markdown-to-jsx';
 import { User, Zap, BookOpen, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 
@@ -72,10 +73,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
         ) : (
           <div className="space-y-3">
             {isProcessing ? (
-              <div className="flex items-center gap-2 text-sm text-accent py-1 font-mono">
-                <Loader2 className="w-4 h-4 animate-spin text-accent" />
-                <span>Synthesising peer-reviewed evidence...</span>
-              </div>
+              <LoadingMessage />
             ) : (
               <div className="prose max-w-none text-sm text-foreground leading-relaxed font-sans prose-p:my-2 prose-headings:text-foreground prose-a:text-accent prose-strong:text-foreground prose-code:text-accent prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded">
                 <Markdown>{message.content}</Markdown>

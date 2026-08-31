@@ -90,9 +90,6 @@ export const ChatArea: React.FC = () => {
           <MessageItem key={msg.id} message={msg} />
         ))}
 
-        {/* Dynamic Status Indicator for processing query */}
-        <StatusIndicator isProcessing={isProcessing} currentStage={currentStage} />
-
         {/* Suggested Prompt Pills if only welcome message present */}
         {messages.length <= 1 && !isProcessing && (
           <div className="pt-4 border-t border-border">
