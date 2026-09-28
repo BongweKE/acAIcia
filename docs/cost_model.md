@@ -1,251 +1,271 @@
 # acAIcia — Cost Estimates & Scaling Plan
 
-- **Date**: 2026-09-28
+- **Date**: 2026-09-28 (revised with live measurements)
 - **Status**: Living document — refresh quarterly as usage and prices change
 - **Planning assumption**: **100 queries per user per month**
-- **Data sources**: measured (Supabase telemetry, Railway usage/metrics) + published pricing (Mistral, Supabase, Railway) verified 2026-09
+- **Data sources**: measured (Supabase telemetry, Railway usage/metrics, live query probes) + published pricing (Mistral, Supabase, Railway) verified 2026-09
 
 ---
 
 ## 0. Executive summary (for leadership)
 
-acAIcia is **cheap to run** — roughly the price of a couple of office software
-subscriptions — and its cost is **predictable**, because almost all of it is flat
-monthly platform fees rather than usage.
+acAIcia costs roughly the price of a couple of software subscriptions, and its
+cost is **predictable** because ~80% of it is flat monthly platform fees rather
+than usage.
 
-* **At launch (10 users)**: ≈ **$81/month**, all-in.
-* **At 500 users**: ≈ **$113/month** — only **$32 more** than at 10 users.
-* The only cost that grows with use is the AI inference itself, and it is tiny:
-  even at 500 users issuing 50,000 queries a month, inference is ≈ **$28/month**
-  (about **$0.0008 per question**).
+* **At launch (10 users)**: ≈ **$82/month**, all-in.
+* **At 500 users**: ≈ **$145/month** — **$63 more than at 10 users**, and most of
+  that is AI inference.
+* One answered question costs about **$0.0017 in AI** (measured live) — a
+  question answered from cache costs ~$0.
 
-We deliberately run the system on **paid, production-grade infrastructure from
-day one** — guaranteed database uptime, daily backups, and redundant servers —
-rather than starting on free tiers and migrating later. That choice costs about
-**$80/month** in fixed fees, but it means the service does not pause when idle,
-keeps restorable backups, and survives a server failure with no data loss.
+We run on paid, production-grade infrastructure from day one (guaranteed database
+uptime, daily backups, redundant servers) rather than free tiers, so the service
+never pauses, keeps restorable backups, and survives a server failure.
 
 ```mermaid
-pie title acAIcia monthly cost — 100 users (Phase 2, $86.39)
+pie title acAIcia monthly cost — 100 users (Phase 2, $93.59)
     "Supabase (database + backups)" : 35.00
     "Mistral (AI engine seat)" : 24.99
     "Railway (servers)" : 20.00
-    "Mistral inference (per query)" : 6.40
+    "Mistral inference (per query)" : 13.60
 ```
 
 ---
 
 ## 1. How these numbers were produced
 
-We did not guess. The model is grounded in:
+Grounded in, not guessed from:
 
-1. **Measured usage** from the live system — query counts, token counts, latency,
-   and cache-hit rate pulled from our own database telemetry.
-2. **Measured infrastructure usage** — actual memory/CPU/egress from Railway's
-   billing and metrics APIs.
-3. **Published, current pricing** — Mistral, Supabase, and Railway pricing pages
-   (verified September 2026).
+1. **Measured usage** — query counts, token counts, latency, and cache-hit rate
+   from our database telemetry.
+2. **Live query probes** — we asked the running system easy/medium/hard questions
+   and read back the exact tokens and cost for each (§2.2).
+3. **Measured infrastructure usage** — memory/CPU/egress from Railway's billing API.
+4. **Published pricing** — Mistral, Supabase, and Railway (verified September 2026).
 
-Full raw numbers and the commands to re-measure them are in §8 (Data appendix).
-
----
-
-## 2. The money flow
-
-Costs split into two kinds: **fixed platform fees** (paid every month regardless
-of traffic) and **variable usage** (grows with the number of questions).
-
-```mermaid
-flowchart LR
-    subgraph FIXED["Fixed platform fees (≈$80/mo, predictable)"]
-        M["Mistral Team seat<br/>$24.99/mo"]
-        S["Supabase Pro + Micro<br/>$35/mo (uptime + backups)"]
-        R["Railway Pro<br/>$20/mo (redundant servers)"]
-    end
-
-    subgraph VAR["Variable usage (grows with traffic)"]
-        I["Mistral inference<br/>≈ $0.0008 / uncached query"]
-        E["Supabase egress<br/>≈ 2.2 MB / query"]
-        C["Railway CPU / egress<br/>(negligible)"]
-    end
-
-    U["Users 10 → 500"] --> Q["Queries 1k → 50k / month"]
-    Q --> I
-    Q --> E
-    Q --> C
-```
-
-The key structural insight: **fixed fees ≈ $80/mo, variable usage ≈ pennies.**
-Doubling users barely moves the total bill.
+Raw numbers and re-measure commands are in §9 (Data appendix).
 
 ---
 
-## 3. Detailed line-by-line breakdown
+## 2. Measured baseline
 
-### 3.1 Mistral — the AI engine (≈ $25–53/mo)
+### 2.1 Traffic & telemetry
 
-Two separate charges:
-
-| Charge | What it is | Monthly |
+| Metric | Lifetime | Last 24 h |
 |---|---|---|
-| **Team seat** (1 user) | Organisation workspace + collaboration features | **$24.99** (flat) |
-| **Inference** | Pay-per-token for the three models below | varies with usage |
+| Queries logged | 360 | 5 |
+| Distinct users | 15 | 5 |
+| Cache hits | 12 (3.3%) | 3 (60%)* |
+| Avg total tokens / query | 4,536 | 2,293** |
 
-The inference models used (prices per 1,000,000 tokens):
+\* small sample. Plan with 10–30% cache-hit rate.
+\** skewed low by cache hits in the window (see §2.2 for clean numbers).
 
-| Model | Job | Input | Output |
-|---|---|---|---|
-| Mistral Small 4 (`mistral-small-latest`) | Write the answer + expand the query | $0.15 | $0.60 |
-| Ministral 3B (`ministral-3b-latest`) | Safety guard | $0.10 | $0.10 |
-| Ministral 8B (`ministral-8b-latest`) | Quality scoring / fallback | $0.15 | $0.15 |
+### 2.2 Live cost probes (easy / medium / hard)
 
-Each answered question costs ≈ **$0.0008** in inference; a question answered from
-cache costs ≈ **$0**.
+We asked the running Railway backend three questions of increasing complexity and
+read the exact per-query telemetry from the database:
 
-> Note: the Team seat is a *productivity* subscription (workspace, collaboration).
-> The API itself needs no subscription — if the organisation only needs raw API
-> access, drop the seat and save $24.99/mo.
+| Probe | Total tokens | Input | Output | **Cost** | Latency |
+|---|---|---|---|---|---|
+| Easy (one-sentence) | 3,936 | 2,313 | 1,623 | **$0.00132** | 5.3 s |
+| Medium (synthesis) | 6,200 | 3,459 | 2,741 | **$0.00216** | 10.2 s |
+| Hard (comparative) | 5,130 | 2,961 | 2,169 | **$0.00175** | 9.8 s |
 
-### 3.2 Supabase — the database (≈ $35/mo + optional DR)
+**The finding that changes our estimates:** cost is driven by **how long the
+answer is** (output tokens) and the **retrieval context size**, *not* by how
+"difficult" the question looks. The medium question produced the longest answer
+(5,086 characters) and cost the most. The one-sentence answer was cheapest and
+fastest (5.3 s).
 
-| Charge | Price | Why we pay it |
-|---|---|---|
-| Pro plan | $25/mo | **Guaranteed uptime** (Free tier pauses after 1 week idle) + **daily backups (7 days)** + 250 GB egress + spend caps |
-| Compute (Micro) | $10/mo | 1 GB RAM, 200 pooled connections — ample for current load |
-| *(optional)* PITR | $100/mo | Point-in-time recovery to any moment (low-RPO disaster recovery) |
-| *(optional)* Read Replica | $15/mo each | Only if the primary CPU sustains > 70% — unlikely at our scale |
+> **Planning figure: ≈ $0.0017 per uncached query** (median), range
+> $0.0013–$0.0022. This is **~2× our earlier estimate**, which had been diluted by
+> cache hits. This is now the number used throughout §4.
 
-The database currently holds 452 documents (21,119 chunks) in **218 MB** — well
-inside the 8 GB Pro allowance, with room to grow ~35×.
+### 2.3 Infrastructure footprint
 
-### 3.3 Railway — the servers (≈ $20/mo)
-
-| Charge | Price | Why |
-|---|---|---|
-| Pro plan | $20/mo | Includes $20 usage credit, 42 replicas, 30-day logs, RBAC, environment budgets |
-
-Usage is billed per-second but stays within the $20 credit:
-- Backend server: ~1 GB RAM → ~$10/mo (or ~$2/mo after the ONNX optimisation).
-- Frontend static server: ~70 MB → ~$0.70/mo.
-- CPU + egress: negligible.
+| Object | Value |
+|---|---|
+| Database size | 218 MB (embeddings 203 MB) |
+| Documents / chunks | 452 / 21,119 |
+| Backend RAM (Railway) | ~1 GB warm → ≈ $10/mo |
+| Frontend RAM | ~70 MB → ≈ $0.70/mo |
 
 ---
 
-## 4. Cost by phase (100 queries / user / month)
+## 3. Published pricing (verified 2026-09)
+
+### Mistral
+
+**Team seat (1 user):** `$24.99/mo` (workspace/collaboration; no included API credits).
+
+**Inference (per 1M tokens):**
+
+| Model (role) | Input | Output |
+|---|---|---|
+| Mistral Small 4 `mistral-small-latest` (synthesis/architect) | $0.15 | $0.60 |
+| Ministral 3B `ministral-3b-latest` (guardian) | $0.10 | $0.10 |
+| Ministral 8B `ministral-8b-latest` (judge/fallback) | $0.15 | $0.15 |
+
+**Tool / specialist APIs (for the upgrades in §6):**
+
+| API | Price |
+|---|---|
+| Web search | $30 / 1,000 calls ($0.03/search) |
+| Premium news | $50 / 1,000 calls |
+| Libraries (document upload) | OCR $3/1k pages · indexing $1/M tokens · $0.01/call |
+| OCR 4.1 | $4 / 1,000 pages |
+| Mistral Embed | $0.10 / 1M input tokens |
+| Mistral Large 3 | $0.50 in / $1.50 out |
+| Mistral Medium 3.5 | $1.50 in / $7.50 out |
+| Moderation 2 | free |
+
+> Batch API = −50%; cached input tokens = −90%.
+
+### Supabase
+
+Pro $25/mo (daily backups 7 d, no-pause, 250 GB egress) · compute Micro $10 / Small $15 / Medium $60 · PITR $100/mo · Read Replica = same compute rate as primary + 1.25× disk.
+
+### Railway
+
+Pro $20/mo + $20 credit (42 replicas, 30-day logs) · memory $10/GB-mo · CPU $20/vCPU-mo · egress $0.05/GB.
+
+---
+
+## 4. Cost by phase (100 queries/user/month, corrected)
 
 ```mermaid
 xychart-beta
     title "acAIcia monthly cost by growth phase (core production config)"
     x-axis ["Testing 10", "Phase 1 50", "Phase 2 100", "Phase 3 200", "Phase 4 500"]
-    y-axis "USD / month" 0 --> 130
-    line "Total" [80.71, 83.39, 86.39, 96.99, 112.99]
-    line "Mistral inference only" [0.72, 3.40, 6.40, 12.00, 28.00]
+    y-axis "USD / month" 0 --> 160
+    line "Total" [81.52, 87.22, 93.59, 110.49, 144.49]
+    line "Mistral inference only" [1.53, 7.23, 13.60, 25.50, 59.50]
 ```
 
 | Phase | Users | Queries/mo | Mistral seat | Mistral inference | Supabase | Railway | **Total** |
 |---|---|---|---|---|---|---|---|
-| Testing | 10 | 1,000 | $24.99 | $0.72 | $35 | $20 | **$80.71** |
-| Phase 1 | 50 | 5,000 | $24.99 | $3.40 | $35 | $20 | **$83.39** |
-| Phase 2 | 100 | 10,000 | $24.99 | $6.40 | $35 | $20 | **$86.39** |
-| Phase 3 | 200 | 20,000 | $24.99 | $12.00 | $40 | $20 | **$96.99** |
-| Phase 4 | 500 | 50,000 | $24.99 | $28.00 | $40 | $20 | **$112.99** |
+| Testing | 10 | 1,000 | $24.99 | $1.53 | $35 | $20 | **$81.52** |
+| Phase 1 | 50 | 5,000 | $24.99 | $7.23 | $35 | $20 | **$87.22** |
+| Phase 2 | 100 | 10,000 | $24.99 | $13.60 | $35 | $20 | **$93.59** |
+| Phase 3 | 200 | 20,000 | $24.99 | $25.50 | $40 | $20 | **$110.49** |
+| Phase 4 | 500 | 50,000 | $24.99 | $59.50 | $40 | $20 | **$144.49** |
 
-**Hardened option** (add Supabase PITR at $100/mo from Phase 2): P2 $186 · P3 $197 · P4 $213.
+**Hardened option** (+ Supabase PITR $100/mo from Phase 2): P2 $193.59 · P3 $210.49 · P4 $244.49.
 
-Read the "flat" shape of the chart: the fixed fees carry the system; usage is a
-thin, slow-growing sliver on top.
+The chart's slope comes almost entirely from AI inference; the fixed fees stay flat.
 
 ---
 
-## 5. Cost spikes: what could move the bill, and how we respond
-
-Nothing here is expected, but good budgeting plans for the unlikely. Each item
-below states **what it is, how likely it is, the cost impact, how we adapt, and
-what value it represents** to the mission.
+## 5. Cost-increase factors (what actually moves the bill)
 
 ```mermaid
 flowchart TD
     Spike["What could raise the bill?"]
-    Spike --> U["Usage surge<br/>(event / viral paper)"]
-    Spike --> K["Knowledge-base growth<br/>(more documents)"]
-    Spike --> C["Cache-hit collapse<br/>(all-unique questions)"]
+    Spike --> U["Usage surge (event / viral paper)"]
+    Spike --> K["Knowledge-base growth (more documents)"]
+    Spike --> C["Cache-hit collapse (all-unique questions)"]
+    Spike --> L["Longer answers (the measured #1 lever)"]
+    Spike --> H["Longer context (multi-turn history)"]
     Spike --> A["Abuse / bot traffic"]
     Spike --> P["Provider price changes"]
     U --> U1["Quotas + autoscale + cache"]
     K --> K1["Disk is cheap; monitor size"]
-    C --> C1["Better retrieval + streaming"]
+    C --> C1["Better retrieval + prompt pills"]
+    L --> L1["Cap output / concise-vs-detailed mode"]
+    H --> H1["Summarize history / cap turns"]
     A --> A1["Rate limits + spend caps + alerts"]
-    P --> P1["Multi-provider pipeline + batch API"]
+    P --> P1["Multi-provider + batch API"]
 ```
 
-### 5.1 Usage surge (research event, a paper goes viral, a conference)
-- **What**: 10× the normal query volume for a week.
-- **Impact**: Mistral inference scales linearly but stays trivial (10× ≈ $50–280/mo in the worst case). The real pressure is Supabase egress (~2.2 MB/query) and concurrent server load.
-- **How we adapt**: per-user rate limits + quotas; push the cache similarity into the database (cuts egress 4×); Railway autoscales replicas automatically.
-- **Value**: this is the system doing its job — high-impact research moments should be absorbed, not throttled away. Our cost model makes absorbing them cheap.
+| Factor | Mechanism | Impact | Adaptation |
+|---|---|---|---|
+| **Longer answers** (measured) | Output tokens are the cost driver | 1.5–2× per query | Cap `max_tokens`; add "concise vs detailed" mode |
+| **Longer context** | Multi-turn history grows each turn | linear token growth | summarize history; cap turns; cache |
+| **Cache-hit decline** | unique questions → more full syntheses | up to ~2× inference | better retrieval (RRF on), prompt pills, streaming |
+| **Knowledge-base growth** | more chunks → storage + index + context | DB size + egress | monitor `pg_database_size`; disk is $0.125/GB |
+| **Usage surge** | event-driven 10× volume | inference + egress scale | quotas, cache pushdown (−4× egress), autoscale |
+| **Premium model** | "deep research" on Large/Medium | 10–12× synthesis cost | optional premium mode with quota |
+| **Abuse/bots** | scripted API calls | unbounded | rate limits + spend caps + alerts (already on) |
+| **Provider price changes** | Mistral/Supabase/Railway raise rates | ~$8/mo per 10% | multi-provider pipeline; batch API |
 
-### 5.2 Knowledge-base growth (ingesting thousands of new documents)
-- **What**: the corpus grows from 452 → thousands of documents.
-- **Impact**: database size grows ~9.6 KB per text chunk (including the vector index). 10× the corpus ≈ +2 GB — still under the 8 GB Pro allowance. Disk overage is $0.125/GB (cheap). Index-build time is the practical constraint, not money.
-- **How we adapt**: monitor `pg_database_size` monthly; pgvector comfortably handles 100M vectors before any redesign.
-- **Value**: a larger corpus directly improves answer quality and coverage — a content investment, not a cost problem.
-
-### 5.3 Cache-hit collapse (every question is unique)
-- **What**: users ask only novel questions, so the semantic cache rarely hits (currently unproven; we plan 10–30%).
-- **Impact**: more full syntheses → inference rises (still < $30/mo at 500 users) and latency rises (~19 s/query vs ~2–4 s cached).
-- **How we adapt**: improve retrieval (hybrid RRF already on), reuse prompt-pills, stream answers to cut perceived wait.
-- **Value**: unique questions are the highest-value traffic; the marginal cost is still pennies.
-
-### 5.4 Abuse or bot traffic
-- **What**: someone scripts the public API.
-- **Impact**: unbounded inference + egress.
-- **How we adapt**: rate limiting, per-user quotas, and **spend caps + alerts are already on** (Railway usage limit, Supabase spend cap). A hard cap halts runaway spend automatically.
-- **Value**: caps convert a potential surprise bill into a bounded, known number.
-
-### 5.5 Provider price changes
-- **What**: Mistral/Supabase/Railway raise rates.
-- **Impact**: fixed fees are the bulk, so a 10% platform increase ≈ $8/mo.
-- **How we adapt**: the pipeline already supports multiple providers; Mistral offers Batch API (−50%) and cached-input (−90%) for the eval workload.
-- **Value**: vendor independence is built in; re-pricing is a renegotiation, not a rewrite.
-
-### 5.6 Disaster recovery / incident
-- **What**: an outage or bad deploy.
-- **Impact**: recovery is already paid for — Supabase daily backups (included) + optional PITR ($100/mo) + Railway redeploys.
-- **How we adapt**: rollback via redeploy or restore from backup/PITR (see ADR 0009/0010 and the migration runbook).
-- **Value**: guarantees the research assistant stays trustworthy even when things break.
+The single biggest lever we measured is **answer length** — a simple, high-value
+control: shorter answers are cheaper *and* faster (5 s vs 10 s).
 
 ---
 
-## 6. Optimum architecture changes per phase
+## 6. Possible upgrades — researched & costed (Mistral)
 
-Principles: **availability/HA**, **disaster recovery**, **statelessness for
-horizontal scaling**, **decouple compute from I/O (queue)**, **cache the
-expensive path**, **cost-per-replica**, **backpressure/quotas**, **observability
-before scale**.
+These are optional capability upgrades, each with a concrete cost and a path to
+handle it. All prices are Mistral's published API rates (verified 2026-09).
+
+| Upgrade | What it adds | Cost basis | Added $/mo (illustrative) | How to handle |
+|---|---|---|---|---|
+| **Multimodal / image understanding** | Read maps, charts, field photos, figures | Mistral Small 4 is already multimodal — images billed as input tokens at $0.15/M (~1,000–1,500 tok/image ≈ $0.00015–0.00023/img) | negligible per image | No new model/subscription; extend the pipeline to pass image URL/base64; add Shieldstral image guard |
+| **Web search** | Live, cited web results to complement the KB | Mistral Web Search $30/1k = $0.03/search | e.g. 20% of queries → +$0.006/query (~$60/mo at 10k q) | Optional toggle; cheaper (Tavily/Brave) if volume grows |
+| **Publication-source connectors** | Pull metadata/abstracts from Crossref, OpenAlex, Semantic Scholar, PubMed, arXiv, DOAJ | APIs are free/rate-limited; real cost = ingestion (embedding ~9.6 KB/chunk + Supabase storage/egress) | one-time embedding + small storage growth | Ingest selectively through the existing pipeline; reuse OCR for scans |
+| **Premium "deep research" model** | Higher-quality synthesis on demand | Mistral Large 3 $0.5/$1.5 or Medium 3.5 $1.5/$7.5 (≈10–12× Small) | 10% premium queries → +$0.01–0.02/query | Optional premium mode with per-user quota + batch for evals |
+| **Hosted embeddings** | Offload local embedding RAM (no torch) | Mistral Embed $0.10/M input | ~$0.0002/query + re-embed corpus | Trade RAM for per-query cost; keep local bge default |
+| **OCR / Document AI** | Parse scanned/legacy literature | OCR $4/1k pages; Doc AI $5/1k pages | one-time per ingested page | For ingestion of scanned literature |
+| **Image+text moderation** | Guard multimodal inputs | Moderation 2 free; Shieldstral 1.0 open | $0 | Add Shieldstral to Guardian for image inputs |
+
+### Upgrade decision view
+
+```mermaid
+flowchart LR
+    Q["User query"] --> A["Text answer<br/>(Mistral Small 4, $0.0017)"]
+    Q --> B["+ image attached<br/>(Small 4 vision, +$0.0002/img)"]
+    Q --> C["+ 'search the web'<br/>(+$0.03/search)"]
+    Q --> D["+ 'deep research'<br/>(Large 3, ~10×)"]
+    subgraph COST["Cost per query (illustrative)"]
+        A
+        B
+        C
+        D
+    end
+```
+
+### Which upgrades we'd pursue first (system-design reasoning)
+
+1. **Multimodal (image) — highest value, lowest cost.** The model already
+   supports it; it's a thin pipeline change, marginal cost is ~$0.0002/image, and
+   it directly serves researchers (maps, field data, charts, figures).
+2. **Publication-source connectors — highest research value.** Free APIs; the
+   real cost is ingestion, which we already do. Broaden coverage with Crossref +
+   OpenAlex + arXiv with negligible new spend.
+3. **Web search — useful, but gate it.** $0.03/search is ~20× a text answer, so
+   make it an explicit opt-in per query rather than default-on.
+4. **Premium model — defer.** Add "deep research" only if researchers ask for it;
+   keep a per-user quota so it can't dominate the bill.
+
+---
+
+## 7. Optimum architecture changes per phase
 
 | Phase | Change | Why |
 |---|---|---|
-| Testing (10) | Railway Pro + Supabase Pro from day one; switch embeddings to ONNX (`fastembed`); seed `prompt_pills`; set spend caps + alerts | Production baseline: uptime, backups, −$8/mo/replica, predictability |
-| P1 (50) | Push semantic-cache similarity into Postgres (revisit ADR 0006); rate limiting | −4× Supabase egress; protect inference spend |
-| P2 (100) | 2 backend replicas + queue; move query status to Supabase; enable PITR; split eval worker | HA + DR + horizontal readiness |
-| P3 (200) | Supabase Small; OpenTelemetry tracing; stream answers | headroom + observability + UX |
-| P4 (500) | CDN for frontend; 3+ replicas + autoscaling; alarm pipeline; (replica only if CPU > 70%) | global latency, resilience, proactive ops |
+| Testing (10) | Railway Pro + Supabase Pro day one; ONNX embeddings (`fastembed`); seed pills; spend caps | uptime, backups, −$8/mo/replica, predictability |
+| P1 (50) | Push cache similarity into Postgres (ADR 0006 follow-up); rate limiting | −4× egress; protect inference |
+| P2 (100) | 2 replicas + queue; move status to Supabase; PITR; split eval worker | HA + DR + horizontal readiness |
+| P3 (200) | Supabase Small; OTel tracing; stream answers; "concise vs detailed" toggle | headroom, observability, cost control |
+| P4 (500) | CDN; 3+ replicas + autoscale; alarms; replica only if CPU > 70% | global latency, resilience |
 
 ---
 
-## 7. Bottom line for decision-makers
+## 8. Bottom line for decision-makers
 
-- **~$81/month today**, **~$113/month at 500 users** — growth adds almost nothing.
+- **~$82/month today, ~$145/month at 500 users** — growth adds ~$63.
 - **~$80/month is fixed, protective infrastructure** (uptime, backups, redundancy).
-- **Inference costs ~$0.0008 per question**; usage is essentially free at any
-  realistic research scale.
-- **The system is designed so the only thing that can scale the bill is value —
-  more real researchers asking more real questions — and we've capped even that
-  with quotas and spend alerts.**
+- **One question costs ~$0.0017 in AI**; cache hits are free.
+- **The one lever that matters is answer length** — shorter answers are cheaper
+  and faster; we can offer a "concise" mode for a 2× cost cut.
+- **Planned upgrades (images, web search, external sources) are cheap** and can
+  be gated behind quotas, so they add capability without adding risk.
 
 ---
 
-## 8. Data appendix (re-measure any time)
+## 9. Data appendix (re-measure any time)
 
 ```bash
 # Railway usage + metrics
@@ -253,13 +273,12 @@ railway usage projects --workspace "Bongwe Obaga's Projects" --project acaicia -
 railway metrics --service "acAIcia Backend" --since 24h --step 87 --json
 
 # Supabase telemetry (SQL editor / MCP)
-select count(*), count(*) filter (where cache_hit),
-       round(avg(total_tokens_used)::numeric,1), round(avg(latency_ms)::numeric,0),
-       round(sum(estimated_cost_usd)::numeric,4)
-from query_interaction_logs where timestamp > now() - interval '30 days';
+select log_id, total_tokens_used, input_tokens, output_tokens, estimated_cost_usd, latency_ms
+from query_interaction_logs order by timestamp desc limit 20;
 
 select pg_size_pretty(pg_database_size(current_database()));
 
 # Pricing (verified 2026-09)
 #   https://mistral.ai/pricing   https://supabase.com/pricing   https://railway.com/pricing
+#   Vision: https://docs.mistral.ai/capabilities/vision
 ```
