@@ -1,125 +1,109 @@
 # 03 — Prioritized Roadmap
 
 > Phased execution plan with success metrics, mapped to GitHub issues.
+> For the comprehensive product backlog cards and ADR traceability, see [`../BACKLOG.md`](../BACKLOG.md).
 
 ---
 
-## Priority legend
+## Priority Legend
 
 | Priority | Label | Meaning |
 |---|---|---|
-| **P1** | `priority:p1` | High ROI, moderate effort — ship first. Direct UX or reliability payoff. |
-| **P2** | `priority:p2` | Meaningful improvement, higher effort — Phase 2. Often requires P1 groundwork. |
-| **P3** | `priority:p3` | Long-term hardening / cleanup — Phase 3. Nice-to-have or deferred. |
+| **P0** | `priority:p0` | Production hotfix / security baseline — ship immediately. Zero/low effort, fixes active bugs or ADR violations. |
+| **P1** | `priority:p1` | High ROI, moderate effort — Phase 1. Direct UX, reliability, or cost modeling payoff. |
+| **P2** | `priority:p2` | Meaningful improvement, higher effort — Phase 2. Enables multi-replica scale and automated quality gates. |
+| **P3** | `priority:p3` | Long-term hardening / cleanup — Phase 3. Nice-to-have, model upgrades, or legacy deprecation. |
 
 ---
 
-## Phase 1 — Immediate wins (P1)
+## Phase 0 — Hotfixes & Production Security (P0)
 
-High ROI, moderate effort. These deliver visible UX and reliability improvements
-with minimal architectural risk.
+Zero-to-low effort fixes that eliminate active runtime failures, security policy violations (ADR 0010), and telemetry distortions in production. Ship immediately in a single batch.
 
 | # | Issue | Effort | Metric |
 |---|---|---|---|
-| 1 | [Streaming responses + replace volume-file polling](https://github.com/BongweKE/acAIcia/issues/1) | M (5–8d) | Time-to-first-token < 2s |
-| 2 | [Unified LLM gateway via LiteLLM](https://github.com/BongweKE/acAIcia/issues/2) | L (3–5d) | Cold-start auto-fallback; unified cost tracking |
-| 3 | [Cross-encoder reranker](https://github.com/BongweKE/acAIcia/issues/3) | S (2–3d) | hit@1 +5pp |
+| 13 | [Fix Migration 005 (RLS & Security Invoker) + Apply to Supabase](https://github.com/BongweKE/acAIcia/issues/13) | S (0.5d) | 100% ADR 0010 RLS compliance; eval tables persist |
+| 14 | [Fix Admin CSV Export 401 Unauthorized via Query Param Auth](https://github.com/BongweKE/acAIcia/issues/14) | S (0.5d) | Zero 401 errors on admin CSV downloads |
+| 15 | [Exact Token Telemetry & Eliminate Heuristic 50/50 Token Split](https://github.com/BongweKE/acAIcia/issues/15) | S (1d) | Exact prompt/completion token tracking; eliminates 300% cost skew |
+| 16 | [Fix Evaluation Background Worker Uncaught Exception Handling](https://github.com/BongweKE/acAIcia/issues/16) | S (0.5d) | Zero infinite loading hangs in Admin UI on eval failure |
+| 17 | [Secure Legacy Modal Rollback `POST /settings` with Admin Auth](https://github.com/BongweKE/acAIcia/issues/17) | S (0.2d) | Zero unauthenticated admin endpoints on rollback |
+| 18 | [Update Stale Modal Backend URLs in Dev & Test Tooling](https://github.com/BongweKE/acAIcia/issues/18) | S (0.2d) | Out-of-the-box working CLI and DeepEval test suite |
+
+**Phase 0 success criteria**:
+- Supabase SQL Editor applies Migration 005 with RLS enabled on `evaluation_details` and `canary_questions`.
+- Admin CSV download works directly from frontend `/admin` dashboard.
+- `query_interaction_logs` records exact input and output tokens matching provider usage.
+- Failed eval runs set `status = 'failed'` and alert admin UI cleanly.
+- `POST /settings` on legacy `app.py` requires `ADMIN_API_KEY`.
+- `cli_admin.py` and `tests/deepeval_suite.py` target Railway backend by default.
+
+---
+
+## Phase 1 — Immediate Wins & Strategic Calibration (P1)
+
+High ROI, moderate effort. Delivers visible UX improvements, cost transparency, and retrieval gains.
+
+| # | Issue | Effort | Metric |
+|---|---|---|---|
+| 1 | [Streaming responses + replace volume/file polling (SSE)](https://github.com/BongweKE/acAIcia/issues/1) | M (5–8d) | Time-to-first-token < 2.0s; eliminates polling |
+| 20 | [Cost Model Refinements: Cache Progression, Multi-Replica Overages, Mistral Seat](https://github.com/BongweKE/acAIcia/issues/20) | S (1d) | Accurate multi-replica budget & cache savings curve |
+| 3 | [Cross-encoder reranker for hybrid retrieval](https://github.com/BongweKE/acAIcia/issues/3) | S (2–3d) | hit@1 +5pp on test questions |
+| 2 | [Unified LLM gateway via LiteLLM with provider fallback](https://github.com/BongweKE/acAIcia/issues/2) | M (3–5d) | Zero downtime on Mistral 429/503; automatic fallback to Gemini/DeepSeek |
 
 **Phase 1 success criteria**:
-- Frontend streams tokens with stage indicators (no polling).
-- Gemma cold-start failures silently fall back to Gemini.
-- `hit@1` from `eval_runner.py` improves by ≥ 5pp after reranker.
-
-**Dependencies**: #1 and #2 are independent; #3 depends on retrieval only.
-Can be parallelized across two developers.
+- Frontend streams tokens with stage indicators (Guardian → Architect → Retrieving → Synthesizing).
+- Cost model documents multi-replica compute overages and 10% → 30% cache progression.
+- `hit@1` improves by ≥ 5pp with cross-encoder reranker.
+- LLM calls automatically fail over if the primary provider encounters errors.
 
 ---
 
-## Phase 2 — Architectural improvements (P2)
+## Phase 2 — Horizontal Scaling & Architectural Quality Gates (P2)
 
-Meaningful improvements that build on Phase 1. Require more architectural
-changes but unlock compounding gains.
+Enables scaling from 50 to 500 users, unlocks multi-replica horizontal deployment on Railway, and automates regression testing.
 
 | # | Issue | Effort | Metric |
 |---|---|---|---|
-| 4 | [HyDE / multi-query expansion](https://github.com/BongweKE/acAIcia/issues/4) | S (2–4d) | hit@1 +3pp |
-| 5 | [Corrective RAG (CRAG) relevance gate](https://github.com/BongweKE/acAIcia/issues/5) | M (4–6d) | Faithfulness +0.05 |
-| 6 | [Semantic cache → native pgvector](https://github.com/BongweKE/acAIcia/issues/6) | S (2–3d) | Remove Python brute-force; cache scales to 10k+ |
-| 7 | [LLM observability (Langfuse)](https://github.com/BongweKE/acAIcia/issues/7) | M (3–5d) | Full trace per query in < 2 min |
-| 8 | [Eval suite (RAGAS/DeepEval)](https://github.com/BongweKE/acAIcia/issues/8) | M (4–6d) | CI blocks metric regression > 0.05 |
-| 12 | [Re-architect with LangGraph](https://github.com/BongweKE/acAIcia/issues/12) | XL (8–12d) | Per-stage streaming, node retries, checkpoint resume |
-
-**Phase 2 success criteria**:
-- Pipeline is a LangGraph graph with streaming, retries, and conditional edges.
-- Every LLM call is traced in Langfuse.
-- Eval suite runs in CI and blocks regressions.
-- Semantic cache uses native pgvector.
+| 19 | [Shared Query Status Store (Supabase/Redis) for Multi-Replica Scaling](https://github.com/BongweKE/acAIcia/issues/19) | M (3–4d) | Seamless load-balancing across 2+ Railway backend replicas |
+| 6 | [Semantic cache → native pgvector HNSW query](https://github.com/BongweKE/acAIcia/issues/6) | S (2–3d) | Cache lookup < 15ms; scales past 100k cached queries |
+| 8 | [Automated CI evaluation suite (DeepEval / RAGAS) + regression gate](https://github.com/BongweKE/acAIcia/issues/8) | M (4–6d) | CI blocks PR merges if Faithfulness or Recall drops > 0.05 |
+| 7 | [LLM observability (Langfuse / OpenTelemetry)](https://github.com/BongweKE/acAIcia/issues/7) | M (3–5d) | Distributed multi-agent waterfall traces in Langfuse |
+| 4 | [HyDE / multi-query expansion](https://github.com/BongweKE/acAIcia/issues/4) | S (2–4d) | hit@1 +3pp on vague or conversational queries |
+| 5 | [Corrective RAG (CRAG) relevance gate](https://github.com/BongweKE/acAIcia/issues/5) | M (4–6d) | Faithfulness +0.05; zero hallucinations on absent topics |
+| 12 | [Re-architect pipeline with LangGraph](https://github.com/BongweKE/acAIcia/issues/12) | XL (8–12d) | Directed state graph with node-level retries and checkpoints |
 
 **Suggested order within Phase 2**:
-1. **#6** (pgvector cache) — independent, quick win.
-2. **#7** (Langfuse) — quick win, improves debugging for everything else.
-3. **#12** (LangGraph) — the big one; do #1 first so streaming is available.
-4. **#4 + #5** (HyDE + CRAG) — add as new LangGraph nodes.
-5. **#8** (eval suite) — do last in Phase 2 to validate all changes.
+1. **#19** (Shared Status Store) — **Must precede** increasing Railway replica count.
+2. **#6** (pgvector cache) — Eliminates Python brute-force memory bottleneck.
+3. **#8** (CI evaluation gate) — Establishes baseline quality protection before major refactors.
+4. **#7** (Langfuse observability) — Provides visual tracing for debugging subsequent nodes.
+5. **#4 + #5** (HyDE + CRAG) — Adds search expansion and relevance gating.
+6. **#12** (LangGraph orchestration) — Refactors pipeline into modular state machine.
 
 ---
 
-## Phase 3 — Long-term hardening (P3)
+## Phase 3 — Long-Term Hardening & Cleanup (P3)
 
-Deferred improvements. Lower urgency but high long-term value.
+Deferred improvements. Lower immediate urgency but high long-term quality and maintenance payoff.
 
 | # | Issue | Effort | Metric |
 |---|---|---|---|
-| 9 | [Embeddings + chunking upgrade](https://github.com/BongweKE/acAIcia/issues/9) | L (6–10d) | hit@1 +5pp; multilingual support |
-| 10 | [Modularize app.py + cleanup](https://github.com/BongweKE/acAIcia/issues/10) | M (3–5d) | app.py < 200 lines |
-| 11 | [Structured outputs + retries](https://github.com/BongweKE/acAIcia/issues/11) | S (2–3d) | Zero malformed-output failures |
-
-**Phase 3 success criteria**:
-- Embedding model upgraded to bge-m3 with parent-child chunking.
-- `app.py` is routes-only; all logic in separate modules.
-- Guardian/Architect use JSON mode with retries.
-
-**Note**: #9 (embeddings) requires a re-embedding job (~30 min, ~$1)
-and schema migration. Do this alongside #10 (modularization) for a
-clean batch of infra changes.
+| 9 | [Embeddings + chunking upgrade (`BAAI/bge-m3` + parent-child)](https://github.com/BongweKE/acAIcia/issues/9) | L (6–10d) | Multilingual search support; context precision +0.08 |
+| 11 | [Structured outputs + retries for Guardian/Architect](https://github.com/BongweKE/acAIcia/issues/11) | S (2–3d) | Zero malformed output parsing errors via JSON schema |
+| 10 | [Deprecate & archive legacy Modal codebase (`app.py`, `gemma_inference.py`)](https://github.com/BongweKE/acAIcia/issues/10) | S (2–3d) | Root `backend/` contains only active Railway modules |
 
 ---
 
-## Cross-cutting concerns
-
-These apply across all phases:
-
-- **Testing**: add unit tests for each new module (LangGraph nodes,
-  reranker, cache, etc.). Use `eval_runner.py` as the integration test.
-- **CI gating**: Phase 2 introduces eval in CI. Phase 1 should add basic
-  `pytest` to the deploy pipeline if not already present.
-- **Documentation**: update `AGENTS.md` and `docs/` after each phase.
-- **Monitoring**: after #7 (Langfuse), set up alerts for latency spikes,
-  cost anomalies, and error rates.
-
----
-
-## Risk register
-
-| Risk | Impact | Mitigation |
-|---|---|---|
-| LangGraph rewrite introduces regressions | High | Run eval_runner before/after; phase the migration (node-by-node). |
-| LiteLLM has provider-specific bugs | Medium | Keep fallback to direct SDK calls; test all 4 providers. |
-| bge-m3 re-embedding loses existing embeddings | High | Run re-embedding job in parallel; swap index atomically. |
-| Langfuse self-hosted adds infra overhead | Low | Use Langfuse cloud (free tier) first; self-host only if needed. |
-| CRAG adds latency for well-retrieved queries | Low | Only trigger re-retrieval when relevance < threshold. |
-
----
-
-## Quick reference
+## Quick Reference Matrix
 
 ```
-Phase 1 (P1)     Phase 2 (P2)              Phase 3 (P3)
-──────────────    ──────────────────────    ──────────────────────
-#1  Streaming     #6  pgvector cache        #9  Embeddings upgrade
-#2  LiteLLM       #7  Langfuse              #10 Modularize app.py
-#3  Reranker      #12 LangGraph             #11 Structured outputs
-                  #4  HyDE
-                  #5  CRAG
-                  #8  Eval suite
+Phase 0 (P0) - Sprint 0   Phase 1 (P1)           Phase 2 (P2)             Phase 3 (P3)
+───────────────────────   ────────────────────   ──────────────────────   ──────────────────────
+#13 Migration 005 RLS     #1  Streaming (SSE)    #19 Shared Status Store  #9  bge-m3 Embeddings
+#14 Admin CSV 401 Fix     #20 Cost Model Rev     #6  pgvector Cache       #11 Structured Output
+#15 Exact Token Telem     #3  Reranker           #8  CI Eval Gate         #10 Archive Modal Code
+#16 Eval Worker Hang Fix  #2  LiteLLM Gateway    #7  Langfuse Tracing
+#17 Legacy Modal Auth                            #4  HyDE Expansion
+#18 Fix Dev Tool URLs                            #5  CRAG Relevance Gate
+                                                 #12 LangGraph Engine
 ```

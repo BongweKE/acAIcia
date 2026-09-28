@@ -190,3 +190,8 @@ The backend query engine (`backend/pipeline.py`, served by `backend/server.py`) 
    - `ChatContext.tsx` uses consecutive error counting (aborts only after 10 consecutive network failures) with a 180-second timeout to support long RAG queries (20–45s).
    - `/query/status/{query_id}` falls back to `query_interaction_logs` and `semantic_cache` in Supabase if the local status file is missing (e.g. after a redeploy), returning a processing state rather than HTTP 404.
    - Pending assistant queries are auto-resumed on session mount or switch.
+
+7. **Product Backlog & Implementation Priorities (`BACKLOG.md`)**:
+   - The authoritative engineering backlog is tracked in [`BACKLOG.md`](BACKLOG.md) and [`future-changes/`](future-changes/).
+   - Priority sequence: **P0 Hotfixes & Security** (Sprint 0: Migration 005 RLS, CSV 401 fix, exact token telemetry, eval worker error handling, rollback auth) → **P1 Wins** (Phase 1: Streaming SSE, cost model updates, reranker, LiteLLM gateway) → **P2 Scale** (Phase 2: multi-replica shared store, pgvector cache, CI eval gate, Langfuse) → **P3 Hardening** (Phase 3: bge-m3, structured outputs, Modal deprecation).
+

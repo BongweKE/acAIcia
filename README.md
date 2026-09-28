@@ -22,6 +22,7 @@ We maintain comprehensive technical documentation for all major components in `A
 7. **[Deployment & Setup Guide](docs/deployment_guide.md)** — Step-by-step instructions for deploying the backend and frontend to Railway (legacy Modal notes included).
 8. **[Expected Costs & Scaling Plan](docs/cost_model.md)** — Data-backed cost model and optimum architecture changes for 10 → 500 users.
 9. **[Migration Runbook](docs/railway_migration.md)** — Modal → Railway migration details and rollback steps.
+10. **[Product Backlog & Engineering Roadmap](BACKLOG.md)** — Prioritized implementation backlog (P0 hotfixes to P3 hardening) and architecture evolution.
 
 ---
 

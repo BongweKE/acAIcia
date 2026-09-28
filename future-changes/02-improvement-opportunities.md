@@ -20,6 +20,14 @@
 10. [Embeddings + chunking upgrade](#10-embeddings--chunking-upgrade)
 11. [Modularize app.py + cleanup](#11-modularize-apppy--cleanup)
 12. [Structured outputs + retries](#12-structured-outputs--retries)
+13. [Fix Migration 005 (RLS & Security Invoker)](#13-fix-migration-005-rls--security-invoker)
+14. [Admin CSV export 401 fix](#14-admin-csv-export-401-fix)
+15. [Exact token telemetry](#15-exact-token-telemetry)
+16. [Evaluation worker uncaught exception handling](#16-evaluation-worker-uncaught-exception-handling)
+17. [Legacy Modal rollback security](#17-legacy-modal-rollback-security)
+18. [Stale Modal endpoints in tooling](#18-stale-modal-endpoints-in-tooling)
+19. [Shared query status store for multi-replica](#19-shared-query-status-store-for-multi-replica)
+20. [Cost model refinements & clarifications](#20-cost-model-refinements--clarifications)
 
 ---
 
@@ -674,3 +682,213 @@ add retry logic, update prompts.
 
 **Success metric**: Zero pipeline failures from malformed Guardian/Architect
 output over 1000 production queries.
+
+---
+
+## 13. Fix Migration 005 (RLS & Security Invoker)
+
+**Issue**: [#13 — Fix Migration 005 (RLS & Security Invoker) + Apply to Supabase](https://github.com/BongweKE/acAIcia/issues/13)
+
+**Current state**: `database/migrations/005_evaluation_system.sql` introduces `evaluation_details`, `canary_questions`, and the view `evaluation_score_trends`. However, the migration was never executed in production Supabase. Furthermore, if executed as-is:
+1. `evaluation_details` and `canary_questions` omit `ALTER TABLE ... ENABLE ROW LEVEL SECURITY;`, directly violating [ADR 0010](../docs/adrs/0010-database-security-posture-rls-deny-by-default.md) which requires deny-by-default on all public tables.
+2. The view `evaluation_score_trends` is defined without `WITH (security_invoker = true)`, which can bypass caller permission boundaries and triggers Supabase security audit warnings.
+3. Because the migration was never run, background evaluation runs cannot persist detail rows or retrieve active canaries from the database.
+
+**Proposed approach**:
+- Update `database/migrations/005_evaluation_system.sql`:
+  - Append `ALTER TABLE evaluation_details ENABLE ROW LEVEL SECURITY;`
+  - Append `ALTER TABLE canary_questions ENABLE ROW LEVEL SECURITY;`
+  - Define `CREATE OR REPLACE VIEW evaluation_score_trends WITH (security_invoker = true) AS ...`
+- Apply the updated migration via Supabase SQL Editor.
+- Verify that table RLS is active with zero public access policies, allowing only the backend `service_role` key to read/write.
+
+**Alternatives considered**:
+- *Creating a separate `005b` migration*: Since 005 was never run in production, modifying 005 directly ensures clean, immutable migration tracking without intermediate broken states.
+
+**Tradeoffs**:
+- Requires Supabase project owner execution via dashboard or service role script.
+
+**Effort**: LOW (0.5 days).
+
+**Success metric**: 100% ADR 0010 compliance verified via Supabase security linter; evaluation details successfully persist during admin runs.
+
+---
+
+## 14. Admin CSV export 401 fix
+
+**Issue**: [#14 — Fix Admin CSV Export 401 Unauthorized via Query Param Auth](https://github.com/BongweKE/acAIcia/issues/14)
+
+**Current state**: In `frontend/src/api/client.ts:216`, `getExportCsvUrl` sets `?authorization=Bearer ${key}` in query parameters for direct browser file downloads via `window.open` or anchor links. In `backend/server.py:1054`, `export_query_logs_csv` only reads `authorization: Optional[str] = Header(default=None)`. The header is `None`, so `_require_admin` throws HTTP 401 Unauthorized.
+
+**Proposed approach**:
+- Modify `export_query_logs_csv` in `backend/server.py` (and `backend/app.py` legacy) to accept:
+  ```python
+  authorization: Optional[str] = Header(default=None),
+  auth_token: Optional[str] = Query(default=None, alias="authorization"),
+  ```
+- Check `token = authorization or auth_token` before invoking `_require_admin(token)`.
+- Strip optional `"Bearer "` prefix if present in the query string.
+
+**Alternatives considered**:
+- *Client-side blob fetch*: Use `fetch()` with the Authorization header, convert to blob, and trigger a client-side object URL download (`URL.createObjectURL(blob)`). While feasible, supporting query param auth in backend is the standard REST pattern for browser streaming downloads and requires minimal code changes.
+
+**Tradeoffs**:
+- Tokens in query parameters can appear in server access logs; mitigated because Railway access logs are private and credentials rotate.
+
+**Effort**: LOW (0.5 days).
+
+**Success metric**: Zero 401 Unauthorized errors when downloading CSV export from `/admin` dashboard.
+
+---
+
+## 15. Exact token telemetry
+
+**Issue**: [#15 — Exact Token Telemetry & Eliminate Heuristic 50/50 Token Split](https://github.com/BongweKE/acAIcia/issues/15)
+
+**Current state**: In `backend/core.py`, `call_llm` discards `prompt_tokens` and `completion_tokens` returned by LLM SDKs, storing only `total_tokens`. In `backend/pipeline.py:498`, synthesis tokens are split 50/50 (`estimated_input = max(0, total_tokens - synth_res.get("tokens", 0) // 2)`, `estimated_output = synth_res.get("tokens", 0) // 2`).
+In Mistral Small, output tokens cost $0.60/M while input tokens cost $0.15/M (4x difference). A typical RAG query contains ~2,500 input prompt tokens and ~500 output tokens. The 50/50 heuristic estimates ~1,500 output tokens (+300% inflation), skewing cost telemetry in `query_interaction_logs` and invalidating live cost probes in `docs/cost_model.md`.
+
+**Proposed approach**:
+- Update `call_llm` in `backend/core.py` to parse and return:
+  `{"text": text, "tokens": total_tokens, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}`
+- In `backend/pipeline.py`, sum exact `prompt_tokens` and `completion_tokens` across Guardian, Architect, and Synthesis agents.
+- Calculate query cost using exact input and output counts:
+  `cost = (total_prompt_tokens * INPUT_RATE + total_completion_tokens * OUTPUT_RATE) / 1_000_000`.
+
+**Alternatives considered**:
+- *Client-side token estimation via tiktoken*: Inaccurate for Mistral and adds CPU overhead. Extracting native usage from the API response is exact and free.
+
+**Tradeoffs**:
+- None. API responses already carry token usage metadata.
+
+**Effort**: LOW (1 day).
+
+**Success metric**: `query_interaction_logs` records exact input and output token counts; calculated query costs match billing invoices to within $0.0001.
+
+---
+
+## 16. Evaluation worker uncaught exception handling
+
+**Issue**: [#16 — Fix Evaluation Background Worker Uncaught Exception Handling](https://github.com/BongweKE/acAIcia/issues/16)
+
+**Current state**: In `backend/server.py:858`, `_run_evaluation_job` runs in a background thread spawned by `trigger_evaluation`. If an unhandled exception occurs (e.g., Supabase network failure, Mistral rate limit 429, missing migration table), the thread catches `err`, logs it, and terminates. The record in `evaluation_runs` remains with `status = 'running'`.
+In `frontend/src/components/admin/EvaluationsTab.tsx`, the polling loop checks for `status === 'completed' || status === 'failed'`. Since the status never changes, the UI hangs indefinitely with a loading spinner.
+
+**Proposed approach**:
+- In `_run_evaluation_job`, update the `except Exception as err:` block to persist the failure:
+  ```python
+  except Exception as err:
+      logger.error("Evaluation background thread failed for run %s: %s", run_id, err, exc_info=True)
+      try:
+          supabase.table("evaluation_runs").update({
+              "status": "failed",
+              "details": {"error": str(err), "failed_at": datetime.now(tz.utc).isoformat()}
+          }).eq("run_id", run_id).execute()
+      except Exception as db_err:
+          logger.error("Failed to update evaluation_runs status to failed: %s", db_err)
+  ```
+- Ensure frontend displays error details if run status is `'failed'`.
+
+**Alternatives considered**:
+- *Polling timeout in frontend*: Useful as a defense-in-depth safeguard, but backend must explicitly report failure states.
+
+**Tradeoffs**:
+- None.
+
+**Effort**: LOW (0.5 days).
+
+**Success metric**: Zero infinite loading hangs in Admin UI during evaluation errors; clear error messages displayed.
+
+---
+
+## 17. Legacy Modal rollback security
+
+**Issue**: [#17 — Secure Legacy Modal Rollback POST /settings with Admin Auth](https://github.com/BongweKE/acAIcia/issues/17)
+
+**Current state**: `backend/app.py:1342` defines `update_settings(request: SettingsRequest)` with no authentication check. In contrast, Railway backend (`backend/server.py:673`) enforces `_require_admin(authorization)`. If the team executes the rollback runbook in `docs/railway_migration.md` to re-enable Modal, the settings endpoint would be exposed to the public internet without authentication, allowing unauthorized model switching.
+
+**Proposed approach**:
+- Add `authorization: Optional[str] = Header(default=None)` to `update_settings` in `backend/app.py`.
+- Call `_require_admin(authorization)` before writing to `/data/settings.json`.
+
+**Alternatives considered**:
+- *Delete `backend/app.py` immediately*: Modal deployment is the only tested rollback target if Railway experiences extended outages. Securing it preserves safe rollback capability.
+
+**Tradeoffs**:
+- None.
+
+**Effort**: LOW (0.2 days).
+
+**Success metric**: Unauthenticated requests to `POST /settings` on legacy Modal backend return HTTP 401.
+
+---
+
+## 18. Stale Modal endpoints in tooling
+
+**Issue**: [#18 — Update Stale Modal Backend URLs in Dev & Test Tooling](https://github.com/BongweKE/acAIcia/issues/18)
+
+**Current state**: `tests/deepeval_suite.py:52` and `cli_admin.py:193` default to `https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run`. Because Modal disabled the workspace after exceeding spend caps, running tests or CLI scripts fails with network errors unless developers manually configure environment variables.
+
+**Proposed approach**:
+- Update default fallback URLs in `tests/deepeval_suite.py` and `cli_admin.py` to point to the active Railway backend (`https://acaicia-backend-production.up.railway.app`).
+- Keep environment variable overrides (`BACKEND_URL` / `ACAICIA_BACKEND_URL`) intact.
+
+**Alternatives considered**:
+- *Require environment variable with no default*: Causes friction for new developers running test suites.
+
+**Tradeoffs**:
+- None.
+
+**Effort**: LOW (0.2 days).
+
+**Success metric**: Running `python cli_admin.py metrics` and `pytest tests/deepeval_suite.py` works out of the box without manual URL overrides.
+
+---
+
+## 19. Shared query status store for multi-replica
+
+**Issue**: [#19 — Shared Query Status Store (Supabase/Redis) for Multi-Replica Scaling](https://github.com/BongweKE/acAIcia/issues/19)
+
+**Current state**: In `backend/server.py`, query status is tracked via ephemeral JSON files in `/tmp/acaicia_status/{query_id}.json`. When scaling beyond 100 users (Phase 2), Railway will run 2+ backend replicas behind a load balancer. A client polling `GET /query/status/{query_id}` may hit Replica B while Replica A is executing the query, resulting in false 404s or stale stage indicators.
+
+**Proposed approach**:
+- **Option A (Supabase table)**: Add a `query_jobs` table in Supabase with columns `query_id`, `status`, `stage`, `response`, `sources`, `cache_hit`, `updated_at`. Both replicas read and write to this table.
+- **Option B (Railway Redis)**: Attach a managed Redis service in Railway. Store query status with a 1-hour TTL (`SET acaicia:query:{query_id} ... EX 3600`).
+- Recommendation: Redis for high-frequency low-latency updates (Phase 2); Supabase table as intermediate step if Redis adds infrastructure cost.
+
+**Alternatives considered**:
+- *Sticky sessions on Railway*: Load balancer sticky sessions route polling requests to the same replica, but fail if containers restart or rebalance during a 45s query. Shared store is fundamentally more resilient.
+
+**Tradeoffs**:
+- Redis adds ~$5–10/mo in Railway infrastructure; Supabase table adds database write I/O.
+
+**Effort**: MEDIUM (3–4 days).
+
+**Success metric**: Query status is 100% accessible across multiple backend containers with zero 404 polling errors under simulated multi-replica load.
+
+---
+
+## 20. Cost model refinements & clarifications
+
+**Issue**: [#20 — Cost Model Refinements: Cache Progression, Multi-Replica Overages, Mistral Seat](https://github.com/BongweKE/acAIcia/issues/20)
+
+**Current state**: `docs/cost_model.md` models Railway cost as flat $20 across all phases (10 → 500 users). In reality, scaling to 2+ backend replicas consumes additional RAM ($10/GB-mo) and vCPU ($20/vCPU-mo), exceeding Railway Pro's included $20 credit.
+Additionally, the model treats cache hit rate as static, omitting the natural progression from 10% (launch) to 30% (corpus maturity). Lastly, the $24.99/mo Mistral Team seat fee needs re-evaluation against the pay-as-you-go developer API tier.
+
+**Proposed approach**:
+- Revise `docs/cost_model.md`:
+  - **Railway Compute**: Add replica scaling breakdown ($20 base + $15/replica/mo for 2+ replicas in Phases 2–4).
+  - **Cache Hit Progression**: Document savings progression (10% at launch → 20% at 100 users → 30% at 500 users), showing reduced effective per-query cost.
+  - **Mistral Seat Analysis**: Detail tradeoffs between Mistral Team Seat ($24.99/mo with workspace role management) vs Pay-As-You-Go API tier (saves ~$300/yr for single-key deployments).
+- Update Mermaid charts in `docs/cost_model.md` to reflect revised multi-replica cost curves.
+
+**Alternatives considered**:
+- *Keep simple flat estimates*: Undershoots budget expectations when scaling to high-availability multi-replica environments.
+
+**Tradeoffs**:
+- Slightly more complex pricing table, but significantly more realistic financial guidance for leadership.
+
+**Effort**: LOW (1 day).
+
+**Success metric**: Cost model accurately reflects multi-replica infrastructure pricing, cache compounding gains, and subscription options.
+
