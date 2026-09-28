@@ -10,9 +10,9 @@ export interface ProviderOption {
 
 export const PROVIDER_OPTIONS: ProviderOption[] = [
   {
-    id: 'modal',
-    name: 'Modal Gemma 4',
-    description: 'Fast, serverless open model deployed on Modal GPU infrastructure.',
+    id: 'mistral',
+    name: 'Mistral Small 4',
+    description: 'Mistral AI 119B MoE model with Shieldstral 1.0 safety guard — default provider.',
   },
   {
     id: 'gemini',
@@ -48,7 +48,7 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeProvider, setActiveProviderState] = useState<LLMProvider>('modal');
+  const [activeProvider, setActiveProviderState] = useState<LLMProvider>('mistral');
   const [customInstructions, setCustomInstructionsState] = useState<string>('');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);

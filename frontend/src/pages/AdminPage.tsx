@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AdminMetricsResponse, AdminFilters, LLMProvider } from '../types';
 import * as client from '../api/client';
-import { ShieldCheck, AlertTriangle, Key, RefreshCw, Download, Cpu, Check } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, Key, RefreshCw, Download, Cpu, Check, Lock } from 'lucide-react';
 import { AdminFilterBar } from '../components/admin/AdminFilterBar';
 import { OverviewTab } from '../components/admin/OverviewTab';
 import { CostUsageTab } from '../components/admin/CostUsageTab';
@@ -16,10 +16,10 @@ export const AdminPage: React.FC = () => {
   const { activeProvider, setProvider } = useSettings();
 
   const [metrics, setMetrics] = useState<AdminMetricsResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'cost' | 'intelligence' | 'performance' | 'evaluations'>('overview');
-  
+
   const [filters, setFilters] = useState<AdminFilters>({
     dateRange: '30d',
     startDate: new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0],
@@ -27,28 +27,10 @@ export const AdminPage: React.FC = () => {
   });
 
   const [adminKey, setAdminKey] = useState(localStorage.getItem('acaicia_admin_key') || '');
-  const [keySaved, setKeySaved] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [isUpdatingModel, setIsUpdatingModel] = useState(false);
-
-  const saveAdminKey = () => {
-    localStorage.setItem('acaicia_admin_key', adminKey);
-    setKeySaved(true);
-    addToast('Admin API Key saved to local storage.', 'success');
-    setTimeout(() => setKeySaved(false), 2000);
-    fetchMetrics(filters);
-  };
-
-  const handleModelChange = async (providerId: LLMProvider) => {
-    try {
-      setIsUpdatingModel(true);
-      await setProvider(providerId);
-      addToast(`Active system model updated to ${providerId}.`, 'success');
-    } catch (err: any) {
-      addToast(`Failed to update model: ${err.message}`, 'error');
-    } finally {
-      setIsUpdatingModel(false);
-    }
-  };
 
   const fetchMetrics = useCallback(async (currentFilters: AdminFilters) => {
     try {
@@ -72,14 +54,124 @@ export const AdminPage: React.FC = () => {
     }
   }, []);
 
+  const unlockWithKey = useCallback(async (key: string) => {
+    setIsVerifying(true);
+    setAuthError(null);
+    try {
+      const ok = await client.verifyAdminKey(key);
+      if (ok) {
+        localStorage.setItem('acaicia_admin_key', key);
+        setIsAuthenticated(true);
+        addToast('Admin access granted.', 'success');
+      } else {
+        localStorage.removeItem('acaicia_admin_key');
+        setIsAuthenticated(false);
+        setMetrics(null);
+        setAuthError('Invalid admin key. Access denied.');
+      }
+    } finally {
+      setIsVerifying(false);
+    }
+  }, [addToast]);
+
+  const handleUnlock = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminKey.trim()) {
+      setAuthError('Please enter the admin key.');
+      return;
+    }
+    unlockWithKey(adminKey.trim());
+  };
+
+  const lock = () => {
+    localStorage.removeItem('acaicia_admin_key');
+    setIsAuthenticated(false);
+    setMetrics(null);
+    setAdminKey('');
+    setAuthError(null);
+    addToast('Admin session locked.', 'success');
+  };
+
+  // Verify any stored key once on mount before rendering the dashboard.
   useEffect(() => {
-    fetchMetrics(filters);
-  }, [fetchMetrics]);
+    const stored = localStorage.getItem('acaicia_admin_key') || '';
+    if (stored) {
+      unlockWithKey(stored);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchMetrics(filters);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
 
   const handleApplyFilters = (newFilters: AdminFilters) => {
     setFilters(newFilters);
     fetchMetrics(newFilters);
   };
+
+  const handleModelChange = async (providerId: LLMProvider) => {
+    try {
+      setIsUpdatingModel(true);
+      await setProvider(providerId);
+      addToast(`Active system model updated to ${providerId}.`, 'success');
+    } catch (err: any) {
+      addToast(`Failed to update model: ${err.message}`, 'error');
+    } finally {
+      setIsUpdatingModel(false);
+    }
+  };
+
+  // ── Access gate: no admin content is rendered until the key is verified ──
+  if (!isAuthenticated) {
+    return (
+      <div className="mx-auto max-w-md px-6 py-24">
+        <form onSubmit={handleUnlock} className="rounded-2xl border border-border bg-card p-8 shadow-sm space-y-5">
+          <div className="flex flex-col items-center text-center gap-3">
+            <div className="p-3 bg-accent/10 rounded-2xl border border-accent/30 text-accent">
+              <Lock className="w-6 h-6" />
+            </div>
+            <h1 className="text-2xl font-serif font-medium tracking-tight">Admin Access Required</h1>
+            <p className="text-xs text-muted-foreground">
+              Enter the admin API key to access the observability dashboard.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-xs font-semibold text-accent uppercase tracking-wider">
+              <Key className="w-4 h-4" /> Admin API Key
+            </label>
+            <input
+              type="password"
+              autoFocus
+              placeholder="Enter Admin API Key..."
+              value={adminKey}
+              onChange={(e) => setAdminKey(e.target.value)}
+              className="w-full bg-background border border-input text-foreground text-sm rounded-lg px-3 py-2.5 focus:border-accent focus:outline-none"
+            />
+          </div>
+
+          {authError && (
+            <div className="flex items-center gap-2 text-destructive text-xs">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isVerifying}
+            className="w-full px-4 py-2.5 bg-accent hover:bg-accent/90 disabled:opacity-60 text-accent-foreground font-semibold text-sm rounded-lg transition-colors shadow-sm"
+          >
+            {isVerifying ? 'Verifying…' : 'Unlock Dashboard'}
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   const exportUrl = client.getExportCsvUrl(filters.startDate, filters.endDate);
 
@@ -110,65 +202,44 @@ export const AdminPage: React.FC = () => {
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
           </button>
+          <button
+            onClick={lock}
+            className="px-3.5 py-2 bg-card hover:bg-muted text-foreground border border-border rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm"
+            title="Lock admin session"
+          >
+            <Lock className="w-4 h-4 text-accent" /> Lock
+          </button>
         </div>
       </div>
 
-      {/* Admin API Key & Model Control Panel */}
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Admin API Key Auth Input */}
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-3">
-          <div className="flex items-center gap-2 text-xs font-semibold text-accent uppercase tracking-wider">
-            <Key className="w-4 h-4" /> Admin API Authentication Key
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Provide the Bearer token configured in Modal secrets (<code className="font-mono text-[11px] text-foreground">ADMIN_API_KEY</code>).
-          </p>
-          <div className="flex gap-2">
-            <input
-              type="password"
-              placeholder="Enter Admin API Key..."
-              value={adminKey}
-              onChange={(e) => setAdminKey(e.target.value)}
-              className="flex-1 bg-background border border-input text-foreground text-xs rounded-lg px-3 py-2 focus:border-accent focus:outline-none"
-            />
-            <button
-              onClick={saveAdminKey}
-              className="px-4 py-2 bg-accent hover:bg-accent/90 text-accent-foreground font-semibold text-xs rounded-lg transition-colors shadow-sm"
-            >
-              {keySaved ? 'Saved!' : 'Save Key'}
-            </button>
-          </div>
+      {/* Global LLM Governance Control */}
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-accent uppercase tracking-wider">
+          <Cpu className="w-4 h-4" /> Global Model Selection (Admin Only)
         </div>
-
-        {/* Global LLM Governance Control */}
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-3">
-          <div className="flex items-center gap-2 text-xs font-semibold text-accent uppercase tracking-wider">
-            <Cpu className="w-4 h-4" /> Global Model Selection (Admin Only)
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Select the active LLM provider for all user synthesis queries across acAIcia.
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {PROVIDER_OPTIONS.map((opt) => {
-              const isSelected = activeProvider === opt.id || activeProvider.includes(opt.id);
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  disabled={isUpdatingModel}
-                  onClick={() => handleModelChange(opt.id)}
-                  className={`flex items-center justify-between p-2.5 rounded-lg border text-left text-xs transition-colors ${
-                    isSelected
-                      ? 'border-accent bg-accent/10 font-semibold text-accent'
-                      : 'border-border bg-background text-muted-foreground hover:bg-muted'
-                  }`}
-                >
-                  <span className="truncate">{opt.name}</span>
-                  {isSelected && <Check className="w-3.5 h-3.5 shrink-0 text-accent" />}
-                </button>
-              );
-            })}
-          </div>
+        <p className="text-xs text-muted-foreground">
+          Select the active LLM provider for all user synthesis queries across acAIcia.
+        </p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {PROVIDER_OPTIONS.map((opt) => {
+            const isSelected = activeProvider === opt.id || activeProvider.includes(opt.id);
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                disabled={isUpdatingModel}
+                onClick={() => handleModelChange(opt.id)}
+                className={`flex items-center justify-between p-2.5 rounded-lg border text-left text-xs transition-colors ${
+                  isSelected
+                    ? 'border-accent bg-accent/10 font-semibold text-accent'
+                    : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                <span className="truncate">{opt.name}</span>
+                {isSelected && <Check className="w-3.5 h-3.5 shrink-0 text-accent" />}
+              </button>
+            );
+          })}
         </div>
       </div>
 

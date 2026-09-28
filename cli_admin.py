@@ -65,9 +65,10 @@ def configure_settings(env_path):
     print("2) NVIDIA NIM API (nvidia)")
     print("3) Modal Gemma 4 (modal)")
     print("4) DeepSeek API (deepseek)")
+    print("5) Mistral AI — Mistral Small 4 + Shieldstral 1.0 (mistral)")
     
-    current_provider = env_vars.get("LLM_PROVIDER", "gemini")
-    choice = input(f"Select choice (1-4) [current: {current_provider}]: ").strip()
+    current_provider = env_vars.get("LLM_PROVIDER", "mistral")
+    choice = input(f"Select choice (1-5) [current: {current_provider}]: ").strip()
     
     provider = current_provider
     if choice == "1":
@@ -78,6 +79,8 @@ def configure_settings(env_path):
         provider = "modal"
     elif choice == "4":
         provider = "deepseek"
+    elif choice == "5":
+        provider = "mistral"
         
     env_vars["LLM_PROVIDER"] = provider
     env_vars["USE_NVIDIA"] = "true" if provider == "nvidia" else "false"
@@ -98,6 +101,10 @@ def configure_settings(env_path):
     deepseek_key = input(f"Enter DEEPSEEK_API_KEY [current: {env_vars.get('DEEPSEEK_API_KEY', 'not set')}]: ").strip()
     if deepseek_key:
         env_vars["DEEPSEEK_API_KEY"] = deepseek_key
+
+    mistral_key = input(f"Enter MISTRAL_API_KEY [current: {env_vars.get('MISTRAL_API_KEY', 'not set')}]: ").strip()
+    if mistral_key:
+        env_vars["MISTRAL_API_KEY"] = mistral_key
         
     # Write to local backend/.env
     write_env(env_path, env_vars)
@@ -112,7 +119,7 @@ def configure_settings(env_path):
         cmd = [modal_bin, "secret", "create", "acaicia-llm-secrets", "--force"]
         
         # Add variables
-        for key in ["LLM_PROVIDER", "USE_NVIDIA", "GOOGLE_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN", "DEEPSEEK_API_KEY"]:
+        for key in ["LLM_PROVIDER", "USE_NVIDIA", "GOOGLE_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN", "DEEPSEEK_API_KEY", "MISTRAL_API_KEY"]:
             if key in env_vars:
                 cmd.append(f'{key}={env_vars[key]}')
                 
@@ -128,18 +135,9 @@ def configure_settings(env_path):
     # 4. Sync Settings on persistent volume if possible
     sync = input("Do you want to sync LLM provider configuration with the active volume state? (y/n) [default: y]: ").strip().lower()
     if sync != 'n':
-        backend_url = None
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        frontend_app_path = os.path.join(base_dir, "frontend", "app.py")
-        if os.path.exists(frontend_app_path):
-            with open(frontend_app_path, "r") as f:
-                content = f.read()
-                m = re.search(r'BACKEND_URL\s*=\s*["\'](https://[^\'\"]+)["\']', content)
-                if m:
-                    backend_url = m.group(1)
-                    
+        backend_url = get_backend_url()
         if backend_url:
-            settings_url = backend_url.replace("/query", "/settings")
+            settings_url = f"{backend_url.rstrip('/')}/settings"
             print(f"Calling settings API at: {settings_url} ...")
             try:
                 import requests
@@ -152,6 +150,7 @@ def configure_settings(env_path):
                 print(f"⚠️ Could not connect to backend API: {e}. You may need to deploy the backend first.")
         else:
             print("⚠️ BACKEND_URL could not be found in frontend/app.py. Cannot sync volume settings via API.")
+
 
 def deploy_inference():
     print_header("Deploying Gemma 4 Inference App to Modal")
@@ -180,23 +179,23 @@ def deploy_frontend():
     except Exception as e:
         print(f"Error deploying frontend app: {e}")
 
+def get_backend_url():
+    if os.environ.get("BACKEND_URL"):
+        return os.environ.get("BACKEND_URL")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    client_ts_path = os.path.join(base_dir, "frontend", "src", "api", "client.ts")
+    if os.path.exists(client_ts_path):
+        with open(client_ts_path, "r") as f:
+            content = f.read()
+            m = re.search(r"['\"](https://[^'\"]+modal\.run)['\"]", content)
+            if m:
+                return m.group(1)
+    return "https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run"
+
 def check_status(env_path):
     print_header("Check Remote Backend & Credentials Status")
-    backend_url = None
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    frontend_app_path = os.path.join(base_dir, "frontend", "app.py")
-    if os.path.exists(frontend_app_path):
-        with open(frontend_app_path, "r") as f:
-            content = f.read()
-            m = re.search(r'BACKEND_URL\s*=\s*["\'](https://[^\'\"]+)["\']', content)
-            if m:
-                backend_url = m.group(1)
-                
-    if not backend_url:
-        print("⚠️ Could not locate BACKEND_URL in frontend/app.py.")
-        return
-        
-    settings_url = backend_url.replace("/query", "/settings")
+    backend_url = get_backend_url()
+    settings_url = f"{backend_url.rstrip('/')}/settings"
     print(f"Calling Settings API: {settings_url} ...")
     try:
         import requests
@@ -208,11 +207,13 @@ def check_status(env_path):
                 "gemini": "Google Gemini API (gemini)",
                 "nvidia": "NVIDIA NIM API (nvidia)",
                 "modal": "Modal Gemma 4 Self-Hosted (modal)",
-                "deepseek": "DeepSeek API (deepseek)"
+                "deepseek": "DeepSeek API (deepseek)",
+                "mistral": "Mistral AI — Mistral Small 4 + Shieldstral 1.0 (mistral)",
             }.get(provider, provider)
             
             print(f"\nActive LLM Provider: {provider_display}")
             print("-" * 40)
+            print(f"Mistral API Key:     {'✅ Configured' if data.get('mistral_api_key_configured') else '❌ Missing (required for Mistral)'}")
             print(f"Google API Key:      {'✅ Configured' if data.get('google_api_key_configured') else '❌ Missing'}")
             print(f"NVIDIA API Key:      {'✅ Configured' if data.get('nvidia_api_key_configured') else '❌ Missing'}")
             print(f"DeepSeek API Key:    {'✅ Configured' if data.get('deepseek_api_key_configured') else '❌ Missing'}")
@@ -223,6 +224,7 @@ def check_status(env_path):
             print(f"⚠️ Settings API returned error status {res.status_code}: {res.text}")
     except Exception as e:
         print(f"⚠️ Failed to connect to backend API: {e}")
+
 
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))

@@ -6,7 +6,7 @@ This document provides a comprehensive technical overview of **acAIcia**, the AI
 
 ## 🌿 Executive Summary
 
-acAIcia is an end-to-end evidence synthesis system designed to empower forestry, climate, soil, and agroforestry researchers. It combines a **Vite + React 18 SPA frontend** with a **Modal-hosted Python multi-agent backend** to ingest scientific publications, perform hybrid dense-vector and full-text keyword retrieval, and generate academic answers with strict `[Author(s), Year]` inline citations and DOI hyperlinks.
+acAIcia is an end-to-end evidence synthesis system designed to empower forestry, climate, soil, and agroforestry researchers. It combines a **Vite + React 18 SPA frontend** with a **Railway-hosted Python (FastAPI) multi-agent backend** to ingest scientific publications, perform hybrid dense-vector and full-text keyword retrieval, and generate academic answers with strict `[Author(s), Year]` inline citations and DOI hyperlinks. (A legacy Modal deployment is retained in `backend/app.py` for rollback only — see `docs/railway_migration.md`.)
 
 ---
 
@@ -21,7 +21,7 @@ acAIcia is an end-to-end evidence synthesis system designed to empower forestry,
                                                       | REST API (HTTP/2 + CORS)
                                                       v
                                     +-----------------------------------+
-                                    |     FastAPI Entrypoint (Modal)     |
+                                    |   FastAPI Entrypoint (Railway)     |
                                     +-----------------+-----------------+
                                                       |
                                      +----------------+----------------+
@@ -50,12 +50,13 @@ acAIcia is an end-to-end evidence synthesis system designed to empower forestry,
 
 ## 🤖 Multi-Agent RAG Pipeline
 
-The backend query engine (`backend/app.py`) executes an asynchronous 4-stage pipeline managed by specialized agents:
+The backend query engine (`backend/pipeline.py`, served by `backend/server.py`) executes a 4-stage pipeline managed by specialized agents:
 
 ### 1. Guardian Agent 🛡️
 - **Role**: Input validation and domain relevance classification.
 - **Policy**: Permissive stance on natural sciences, forestry, agroforestry, climate change, peatland hydrology, soil science, fire management, and research methodology.
 - **Decision Rule**: Returns `PASS` for scientific queries; returns `FAIL` only for malicious inputs, prompt injections, or completely off-topic requests.
+- **Provider mapping**: When `mistral` provider is active, Guardian uses **Shieldstral 1.0** (3B policy-adaptive safety classifier) instead of the general-purpose model.
 
 ### 2. Query Architect Agent 🧭
 - **Role**: Query expansion and hybrid search optimization.
@@ -76,6 +77,12 @@ The backend query engine (`backend/app.py`) executes an asynchronous 4-stage pip
 - **Matching Criteria**: Requires similarity threshold >= 0.98 and matching domain `topic_category` to prevent cross-domain cache contamination. Always stores and compares the raw user query embedding (`user_query`), never the Architect's expanded search query embedding.
 - **Context Guard**: Checked **only for standalone single-turn queries** (`if not conversation_history`). Multi-turn conversation sessions bypass semantic cache to maintain conversation session context.
 
+### 6. Continuous Evaluation & Observability Subsystem 📈
+- **Core Engine (`backend/evaluation_engine.py`)**: Multi-dimensional evaluation combining DeepEval metrics (Faithfulness, Answer Relevancy, Context Precision, Recall) with custom CIFOR-ICRAF Citation Quality verification and Canary Hallucination detection.
+- **On-Demand Admin Benchmarks**: Triggered via Admin Dashboard (`/admin`), executing asynchronously via `run_evaluation_worker` with selectable datasets (`test_questions.csv`, `test_questions_difficult.csv`, etc.) and execution modes (`full`, `fast_smoke`, `retrieval_only`).
+- **Weekly Comparative Evaluation**: Scheduled cron `modal.Cron("0 2 * * 0")` on the **legacy Modal deployment only** (compares Modal self-hosted Gemma against Mistral API `ministral-8b-latest`). The Railway backend has no Gemma and runs Mistral-only, admin-triggered evaluations.
+- **Persistence Layer (`005_evaluation_system.sql`)**: Persists run metadata (`evaluation_runs`), per-question metrics (`evaluation_details`), active canary registry (`canary_questions`), and timeseries score view (`evaluation_score_trends`).
+
 ---
 
 ## ⚛️ React Frontend Architecture (`frontend/`)
@@ -95,7 +102,7 @@ The backend query engine (`backend/app.py`) executes an asynchronous 4-stage pip
   - `ChatContext`: Persistent multi-session chat history (`localStorage` backed). Supports creating, switching, and deleting sessions.
   - `SettingsContext`: Admin-governed LLM active model display (read-only on user pages, configurable via `/admin`).
   - `ToastContext`: Global notification toasts.
-- **API Client (`frontend/src/api/client.ts`)**: Connects to the FastAPI backend API with automatic fallback to `https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run`.
+- **API Client (`frontend/src/api/client.ts`)**: Connects to the FastAPI backend API with automatic fallback to `https://acaicia-backend-production.up.railway.app`.
 
 ---
 
@@ -120,42 +127,57 @@ The backend query engine (`backend/app.py`) executes an asynchronous 4-stage pip
 | `/admin/alerts` | `GET` | `?resolved=false` | `{ alerts: SystemAlert[] }` |
 | `/admin/alerts/{id}/resolve` | `POST` | None | `{ status: "resolved" }` |
 | `/admin/evaluations` | `GET` | `?page=1&limit=20` | `{ evaluation_runs, production_ragas }` |
+| `/admin/evaluations/trigger` | `POST` | `?dataset=...&limit=...&eval_mode=...` | `{ run_id, status: "running", message }` |
+| `/admin/evaluations/{run_id}/details` | `GET` | None | `{ run, details: EvaluationDetail[] }` |
+| `/admin/evaluations/trends` | `GET` | `?limit=30` | `{ trends: EvaluationTrend[] }` |
 | `/admin/export/csv` | `GET` | `?start_date=...&end_date=...` | Streaming CSV download |
 
 ---
 
 ## 🚢 Deployment Topology
 
-1. **Railway (`acAIcia`)**:
+1. **Railway (`acAIcia` frontend)**:
    - **Live URL**: [https://acaicia.org](https://acaicia.org)
    - **Build**: Multi-stage `Dockerfile` (Node 20 builder -> `serve` static server on `$PORT`).
 
-2. **Modal Cloud (`acaicia-backend`)**:
+2. **Railway (`acAIcia Backend`)** — ACTIVE backend:
+   - **Backend API URL**: [https://acaicia-backend-production.up.railway.app](https://acaicia-backend-production.up.railway.app)
+   - **Build**: `backend/Dockerfile` (build context = repo root). Entrypoint `uvicorn backend.server:app`.
+   - **Inference**: Mistral API only (`LLM_PROVIDER=mistral`). `BAAI/bge-base-en-v1.5` is baked into the image.
+   - **State**: Supabase (data/telemetry) + a local file store for query status/settings. No Modal GPU, no cron.
+   - **Admin**: `/admin/*` and `POST /settings` require `Authorization: Bearer <ADMIN_API_KEY>`.
+
+3. **Modal Cloud (`acaicia-backend`) — LEGACY / ROLLBACK ONLY**:
    - **Backend API URL**: [https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run](https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run)
    - **Frontend Backup URL**: [https://ciforicraf-ai--acaicia-frontend-fastapi-app-entrypoint.modal.run](https://ciforicraf-ai--acaicia-frontend-fastapi-app-entrypoint.modal.run)
-   - **Cron**: `cron_eval_and_warmup` scheduled nightly via `modal.Cron("0 2 * * *")`.
+   - **Status**: the `ciforicraf-ai` workspace exceeded its $30/month Starter spend limit and Modal disabled serving for every app in it. Do not rely on Modal while that is unresolved.
+   - **Cron**: `cron_eval_and_warmup` weekly via `modal.Cron("0 2 * * 0")` (legacy only).
 
 ---
 
 ## 🔒 Security & Environment Rules
 
-1. **Zero Hardcoded Secrets**: All secret keys (`SUPABASE_KEY`, `GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `DEEPSEEK_API_KEY`, `ADMIN_API_KEY`) are managed via Modal Secrets or Railway environment settings.
+1. **Zero Hardcoded Secrets**: All secret keys (`SUPABASE_KEY`, `GOOGLE_API_KEY`, `NVIDIA_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `ADMIN_API_KEY`) are managed via Modal Secrets or Railway environment settings.
 2. **CORS Policy**: Backend FastAPI configured with `CORSMiddleware` to allow requests from Railway and Modal frontend origins.
 3. **Git Hygiene**: `.gitignore` excludes `node_modules/`, `dist/`, `.agents/`, `.env`, `.venv`, and temporary logs.
+4. **Database RLS Posture**: every `public` table has RLS **enabled with no policies** (deny-by-default for `anon`/`authenticated`). The backend uses the `service_role` key, which bypasses RLS, and the frontend never talks to Supabase directly. **Any new table MUST have RLS enabled.** See [ADR 0010](docs/adrs/0010-database-security-posture-rls-deny-by-default.md).
+5. **Admin Surface**: `/admin/*` and `POST /settings` require `Authorization: Bearer <ADMIN_API_KEY>`, and the frontend `/admin` route gates all content behind key entry. See [ADR 0002](docs/adrs/0002-machine-uuid-guest-tracking-and-admin-model-governance.md).
 
 ---
 
 ## 🧠 Developer & Agent Guidelines (Holistic Architecture & Operational Tips)
 
-1. **Python Environment & Modal CLI Execution**:
-   - Virtual environment is located at `.venv/`. **ALWAYS** call Python and Modal CLI commands using `.venv` executables (e.g., `.venv/bin/modal deploy backend/app.py`).
+1. **Python Environment & Backend Deployment**:
+   - Virtual environment is located at `.venv/`. **ALWAYS** call Python and CLI commands using `.venv` executables.
+   - **Railway backend (active)**: deploy from the repo root with `railway up --service "acAIcia Backend" --environment production` (uses `backend/Dockerfile`). Set variables with `railway variable set`.
+   - **Modal (legacy, rollback only)**: `.venv/bin/modal deploy backend/app.py` — only works once the Modal workspace spend limit is resolved.
 
 2. **Frontend React SPA Execution**:
    - React frontend resides in `frontend/`. Always execute `npm` commands inside `frontend/` (e.g. `cd frontend && npm run build`).
    - Static typecheck is enforced via `tsc && vite build`. Always verify clean production compilation (`0 errors`) before pushing or deploying.
 
 3. **Holistic Architectural Scoping**:
-   - Code updates must consider the end-to-end system architecture (Vite + React 18 SPA frontend, Modal serverless multi-agent backend, FastAPI endpoints, Supabase database, and Railway deployment).
+   - Code updates must consider the end-to-end system architecture (Vite + React 18 SPA frontend, Railway multi-agent backend, FastAPI endpoints, Supabase database, and Railway deployment).
 
 4. **Multi-Turn Session & Semantic Cache Rules**:
    - Single-turn standalone queries check `semantic_cache` (similarity threshold >= 0.95).
@@ -166,5 +188,5 @@ The backend query engine (`backend/app.py`) executes an asynchronous 4-stage pip
 
 6. **Query Polling Resilience & Database Fallback Protocol**:
    - `ChatContext.tsx` uses consecutive error counting (aborts only after 10 consecutive network failures) with a 180-second timeout to support long RAG queries (20–45s).
-   - `/query/status/{query_id}` falls back to `query_interaction_logs` and `semantic_cache` in Supabase if Modal volume sync lags, returning a processing state rather than HTTP 404.
+   - `/query/status/{query_id}` falls back to `query_interaction_logs` and `semantic_cache` in Supabase if the local status file is missing (e.g. after a redeploy), returning a processing state rather than HTTP 404.
    - Pending assistant queries are auto-resumed on session mount or switch.

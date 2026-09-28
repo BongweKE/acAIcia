@@ -6,37 +6,37 @@ This document outlines the high-level infrastructure, multi-agent logic flow, an
 
 ## 1. High-Level Operations Overview
 
-acAIcia relies on a fully serverless, highly decoupled ecosystem split between a **Vite + React 18 SPA Frontend** (hosted on Railway & Modal), **Modal Serverless Containers** (FastAPI Backend, Persistent Settings Volume, and Self-Hosted Gemma 4 Inference Service), and **Supabase** (Postgres, pgvector, & Full-Text Search).
+acAIcia relies on a highly decoupled ecosystem split between a **Vite + React 18 SPA Frontend** (Railway), a **Railway FastAPI Backend** (Mistral inference, `backend/server.py`), and **Supabase** (Postgres, pgvector, & Full-Text Search). The legacy Modal deployment (`backend/app.py`) is retained for rollback only — see `docs/railway_migration.md` and ADR 0009.
 
 ```mermaid
 flowchart TD
-    User([fa:fa-user User]) <-->|HTTPS / React SPA UI| UI[Vite + React 18 Frontend]
-    UI <-->|REST API JSON + CORS /query, /settings, /user/settings, /feedback, /admin/metrics| API[Modal FastAPI Backend]
-    
+    User([fa:fa-user User]) <-->|HTTPS / React SPA UI| UI[Vite + React 18 Frontend — Railway]
+    UI <-->|REST API JSON + CORS /query, /settings, /user/settings, /feedback, /admin/metrics| API[Railway FastAPI Backend]
+
     %% Semantic Cache check
-    API <-->|Single-Turn Only: Topic Guard + Vector Cosine Sim >= 0.98| Cache[(Semantic Response Cache)]
-    
+    API <-->|Single-Turn Only: Topic Guard + Vector Cosine Sim >= 0.98| Cache[(Semantic Response Cache — Supabase)]
+
     %% Hybrid Retrieval
     API <-->|Hybrid Search RRF: pgvector + TSVECTOR| DB[(Supabase Postgres DB)]
-    
+
     %% Telemetry & Feedback
     API -->|Async Logging| Tel[(query_interaction_logs / query_chunk_logs / query_feedback / evaluation_runs)]
-    
-    %% Config & Volume
-    API <-->|Read/Write settings.json| Vol[(Modal Persistent Volume)]
-    
+
+    %% Config & local file store
+    API <-->|Read/Write settings.json + query status| FS[(Local file store — /data)]
+
     %% Provider Routing
     subgraph LLM Providers
-        API -->|Option 1: Gemini API| Gemini[Google AI Studio]
-        API -->|Option 2: NVIDIA NIM API| NIM[NVIDIA NIM Endpoints]
-        API <-->|Option 3: Modal RPC| Gemma[Modal Gemma 4 Inference Service]
-        API -->|Option 4: DeepSeek API| DeepSeek[DeepSeek API]
+        API -->|Default: Mistral API| Mistral[api.mistral.ai]
+        API -->|Optional: Gemini API| Gemini[Google AI Studio]
+        API -->|Optional: NVIDIA NIM API| NIM[NVIDIA NIM Endpoints]
+        API -->|Optional: DeepSeek API| DeepSeek[DeepSeek API]
     end
-    
+
     %% Evaluation Suite
     subgraph Automated RAG Evaluation Suite
-        Cron[cron_eval_and_warmup] -->|Modal Cron Nightly| API
-        Cron -->|Record Benchmark Stats| DB
+        Eval[Admin-triggered worker — background thread] -->|POST /query| API
+        Eval -->|Record Benchmark Stats| DB
     end
 ```
 
@@ -71,3 +71,4 @@ For more specific inner workings, consult the specialized documentation:
 - [Frontend Architecture](frontend.md)
 - [Database Schema](database_schema.md)
 - [Deployment & Setup Guide](deployment_guide.md)
+- [Expected Costs & Scaling Plan](cost_model.md)

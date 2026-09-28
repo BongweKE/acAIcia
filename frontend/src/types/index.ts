@@ -4,7 +4,8 @@ export type LLMProvider =
   | 'modal_gemma' 
   | 'gemini_2_5' 
   | 'nvidia_llama' 
-  | 'deepseek_reasoner' 
+  | 'deepseek_reasoner'
+  | 'mistral'
   | string;
 
 export interface PromptPillsResponse {
@@ -16,6 +17,7 @@ export interface SettingsResponse {
   google_api_key_configured: boolean;
   nvidia_api_key_configured: boolean;
   deepseek_api_key_configured: boolean;
+  mistral_api_key_configured: boolean;
   hf_token_configured: boolean;
   active_source: string;
 }
@@ -205,6 +207,55 @@ export interface ProductionRAGAS {
   avg_context_precision?: number;
   avg_overall_score?: number;
   recent_scores: RAGASScore[];
+}
+
+export interface EvaluationDetail {
+  detail_id: string;
+  run_id: string;
+  question_index: number;
+  input_query: string;
+  expected_output?: string;
+  actual_output?: string;
+  retrieval_context?: string[];
+  faithfulness?: number;
+  answer_relevancy?: number;
+  context_precision?: number;
+  context_recall?: number;
+  citation_quality?: number;
+  hallucination_rate?: number;
+  hit_at_1?: boolean;
+  hit_at_5?: boolean;
+  latency_ms?: number;
+  question_type: 'standard' | 'canary' | 'adversarial' | 'multi_turn';
+  topic_category?: string;
+  source_dataset?: string;
+  target_doi?: string;
+  notes?: string;
+}
+
+export interface EvaluationTrend {
+  run_id: string;
+  timestamp: string;
+  run_type: string;
+  dataset_name: string;
+  judge_model?: string;
+  passed: boolean;
+  num_questions: number;
+  status?: string;
+  duration_sec?: number;
+  run_cost_usd?: number;
+  avg_faithfulness?: number;
+  avg_answer_relevancy?: number;
+  avg_context_precision?: number;
+  avg_context_recall?: number;
+  avg_citation_quality?: number;
+  avg_hallucination_rate?: number;
+  avg_latency_ms?: number;
+  hit_rate_at_5_pct?: number;
+  hit_rate_at_1_pct?: number;
+  canary_violations: number;
+  canary_total: number;
+  total_details: number;
 }
 
 export interface QueryRequest {

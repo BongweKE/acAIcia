@@ -5,8 +5,11 @@ echo "=== acAIcia Modal Secret Updater ==="
 echo "This script will update your 'acaicia-llm-secrets' in Modal."
 
 # Prompt for LLM_PROVIDER
-read -p "Select LLM Provider (gemini/nvidia/modal/deepseek) [default: gemini]: " llm_provider
-llm_provider=${llm_provider:-gemini}
+read -p "Select LLM Provider (gemini/nvidia/modal/deepseek/mistral) [default: mistral]: " llm_provider
+llm_provider=${llm_provider:-mistral}
+
+# Prompt for Mistral API Key
+read -p "Enter MISTRAL_API_KEY (required if provider is mistral, leave blank to keep existing/skip): " mistral_api_key
 
 # Prompt for Google API Key
 read -p "Enter GOOGLE_API_KEY (required if provider is gemini, leave blank to keep existing/skip): " google_api_key
@@ -32,6 +35,10 @@ cmd="modal secret create acaicia-llm-secrets --force"
 
 cmd="$cmd LLM_PROVIDER=$llm_provider"
 cmd="$cmd USE_NVIDIA=$use_nvidia"
+
+if [ ! -z "$mistral_api_key" ]; then
+    cmd="$cmd MISTRAL_API_KEY=$mistral_api_key"
+fi
 
 if [ ! -z "$google_api_key" ]; then
     cmd="$cmd GOOGLE_API_KEY=$google_api_key"

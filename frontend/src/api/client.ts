@@ -10,7 +10,7 @@ import type {
   QueryStatusResponse,
 } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://acaicia-backend-production.up.railway.app';
 
 async function handleResponse<T>(response: Response, errorMessage: string): Promise<T> {
   if (!response.ok) {
@@ -46,10 +46,22 @@ export async function getSettings(): Promise<SettingsResponse> {
 export async function updateSettings(payload: SettingsRequest): Promise<SettingsResponse> {
   const res = await fetch(`${API_BASE}/settings`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...getAdminHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   return handleResponse<SettingsResponse>(res, 'Failed to update settings');
+}
+
+// Verifies an admin API key against a gated endpoint. Returns true when accepted.
+export async function verifyAdminKey(key: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/admin/metrics?limit=1`, {
+      headers: key ? { 'Authorization': `Bearer ${key}` } : {},
+    });
+    return res.status !== 401;
+  } catch {
+    return false;
+  }
 }
 
 export async function getUserSettings(userId: string): Promise<UserProfile> {
@@ -154,6 +166,41 @@ export async function clearSemanticCache() {
 export async function getAdminEvaluations(page = 1, limit = 20) {
   const res = await fetch(`${API_BASE}/admin/evaluations?page=${page}&limit=${limit}`, { headers: getAdminHeaders() });
   return handleResponse<any>(res, 'Failed to fetch evaluations');
+}
+
+export async function triggerEvaluationRun(params: {
+  dataset?: string;
+  limit?: number;
+  eval_mode?: string;
+}): Promise<{ run_id: string; status: string; message: string }> {
+  const p = new URLSearchParams();
+  if (params.dataset) p.set('dataset', params.dataset);
+  if (params.limit) p.set('limit', String(params.limit));
+  if (params.eval_mode) p.set('eval_mode', params.eval_mode);
+  const res = await fetch(`${API_BASE}/admin/evaluations/trigger?${p}`, {
+    method: 'POST',
+    headers: getAdminHeaders(),
+  });
+  return handleResponse(res, 'Failed to trigger evaluation');
+}
+
+export async function getEvaluationRunDetails(runId: string): Promise<{
+  run: any;
+  details: any[];
+}> {
+  const res = await fetch(`${API_BASE}/admin/evaluations/${runId}/details`, {
+    headers: getAdminHeaders(),
+  });
+  return handleResponse(res, 'Failed to fetch evaluation details');
+}
+
+export async function getEvaluationTrends(limit = 30): Promise<{
+  trends: any[];
+}> {
+  const res = await fetch(`${API_BASE}/admin/evaluations/trends?limit=${limit}`, {
+    headers: getAdminHeaders(),
+  });
+  return handleResponse(res, 'Failed to fetch evaluation trends');
 }
 
 export async function getSystemAlerts(resolved = false) {

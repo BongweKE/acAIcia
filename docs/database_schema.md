@@ -193,4 +193,13 @@ Run SQL migrations in order in your Supabase SQL Editor:
 - [002_fix_semantic_cache.sql](../database/migrations/002_fix_semantic_cache.sql) — Add comma-separated embedding text representation.
 - [003_advanced_analytics.sql](../database/migrations/003_advanced_analytics.sql) — Analytics schema, topic taxonomy, cost tracking, RAGAS scores, alerts, and views.
 - [004_fix_semantic_cache_topic_guard.sql](../database/migrations/004_fix_semantic_cache_topic_guard.sql) — Add domain topic category isolation to semantic cache, set similarity threshold to 0.98, and align raw query vector storage.
+- [005_evaluation_system.sql](../database/migrations/005_evaluation_system.sql) — Evaluation infrastructure: per-question details, run configuration metadata, canary tracking, and score-trend views.
+- [006_fix_hybrid_retrieval_perf.sql](../database/migrations/006_fix_hybrid_retrieval_perf.sql) — HNSW vector + GIN full-text indexes on `document_embeddings`; fixes `match_documents_hybrid` statement-timeout failures.
+- [007_db_security_perf_hardening.sql](../database/migrations/007_db_security_perf_hardening.sql) — Invoker-safe `popular_documents` view, pinned function `search_path`, FK covering indexes, duplicate-index cleanup.
+- [008_lock_down_public_rls.sql](../database/migrations/008_lock_down_public_rls.sql) — Enable RLS (deny-by-default, no policies) on the four core tables. See [ADR 0010](adrs/0010-database-security-posture-rls-deny-by-default.md).
+
+### Security posture
+All `public` tables run with **RLS enabled and no policies**: the `anon`/`authenticated`
+roles have no access, while the backend's `service_role` key bypasses RLS. The
+frontend never connects to Supabase directly. Any new table must enable RLS.
 

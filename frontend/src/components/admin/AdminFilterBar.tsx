@@ -18,10 +18,11 @@ const TOPICS = [
 
 const PROVIDERS = [
   { id: '', label: 'All Providers' },
+  { id: 'mistral', label: 'Mistral' },
   { id: 'gemini', label: 'Google Gemini' },
   { id: 'nvidia', label: 'NVIDIA Llama' },
   { id: 'deepseek', label: 'DeepSeek' },
-  { id: 'modal', label: 'Modal Gemma' },
+  { id: 'modal', label: 'Modal Gemma (legacy)' },
 ];
 
 const QUERY_TYPES = [

@@ -6,12 +6,12 @@ export const FaqsView: React.FC = () => {
     {
       q: 'How does Guest Mode vs Authenticated Researcher Mode work?',
       icon: <Lock className="w-4 h-4 text-amber-400" />,
-      a: 'Guest sessions track query usage (up to 20 queries max per browser session) and are locked to the fast, serverless Modal Gemma 4 model. Logging in as an Authenticated Researcher unlocks unlimited queries, Gemini 2.5 Flash, NVIDIA NIM Llama 3.3, DeepSeek Reasoner, and Custom Instructions editing.',
+      a: 'Guest sessions track query usage (up to 20 queries max per browser session). All sessions are powered by Mistral Small 4. Logging in as an Authenticated Researcher unlocks unlimited queries and Custom Instructions editing.',
     },
     {
       q: 'What LLM models are supported and how do I switch providers?',
       icon: <Key className="w-4 h-4 text-emerald-400" />,
-      a: 'acAIcia supports Modal Gemma 4, Google Gemini 2.5 Flash, NVIDIA NIM Llama 3.3 70B, and DeepSeek Reasoner (R1). Authenticated users can open the Settings modal (gear icon in header or top-left model pill) to switch the active synthesis provider instantly.',
+      a: 'acAIcia is powered by Mistral Small 4 by default. Additional providers (Google Gemini 2.5 Flash, NVIDIA NIM Llama 3.3, DeepSeek Reasoner) can be enabled by administrators from the admin dashboard. Researchers can tailor synthesis with Custom Instructions in Settings.',
     },
     {
       q: 'How are source citations verified and linked via DOIs?',

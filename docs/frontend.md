@@ -44,8 +44,8 @@ Every synthesized response includes interactive feedback actions:
 
 ## 📊 Admin Observability & Analytics Dashboard Guide
 
-Administrators can access the comprehensive 5-tab analytics dashboard at `/admin`:
-- **Global Model Selection**: Switch the active LLM provider (Gemini 2.5 Flash, Modal Gemma 4, NVIDIA Llama 3.3, DeepSeek Reasoner) for all acAIcia user queries.
+Administrators can access the comprehensive 5-tab analytics dashboard at `/admin`. **Access is gated** — the page requires the `ADMIN_API_KEY` before rendering any content (the key is verified against the backend, then stored in `localStorage` as `acaicia_admin_key`).
+- **Global Model Selection**: Switch the active LLM provider (Mistral Small 4 — default, Gemini 2.5 Flash, NVIDIA Llama 3.3, DeepSeek Reasoner) for all acAIcia user queries.
 - **Global Filter Bar**: Date range selector (Today, 7d, 30d, 90d, Custom), Topic dropdown, LLM Provider selector, Query Type filter, and Time-of-Day hour range selector (0-23 UTC).
 - **5 Analytics Tabs**:
   1. **📊 Overview**: KPI cards, Chart.js daily query volume line chart, provider distribution doughnut, and system health alerts.
@@ -54,4 +54,4 @@ Administrators can access the comprehensive 5-tab analytics dashboard at `/admin
   4. **⚡ Performance**: Latency percentiles (P50, P95, P99), latency trend chart, 4-stage pipeline timing breakdown, **7×24 Time-of-Day Activity Heatmap**, and **Semantic Cache Management** (stats + cache clear action).
   5. **📋 Evaluations**: RAGAS quality score cards (Faithfulness, Answer Relevance, Context Precision), production RAGAS scores table, paginated evaluation benchmark runs, feedback log with sentiment filter, and unresolved system alerts.
 - **CSV Export**: Click **Export CSV** to stream full interaction logs for funder reporting.
-- **Security**: Key icon (🔑) allows setting an optional `ADMIN_API_KEY` stored in `localStorage` as `acaicia_admin_key`.
+- **Security**: The `/admin` route requires the `ADMIN_API_KEY` before rendering (enter it in the lock screen). It is stored in `localStorage` as `acaicia_admin_key` and sent as `Authorization: Bearer <key>` on all `/admin/*` requests.

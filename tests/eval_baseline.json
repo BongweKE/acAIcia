@@ -1,0 +1,8 @@
+{
+  "Faithfulness": 0.72,
+  "Answer Relevancy": 0.72,
+  "Contextual Precision": 0.70,
+  "Contextual Recall": 0.70,
+  "_run_date": "2026-09-08",
+  "_provider": "mistral"
+}

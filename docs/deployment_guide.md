@@ -2,148 +2,128 @@
 
 [← Back to README](../README.md)
 
-This guide provides step-by-step instructions for deploying **acAIcia** to cloud infrastructure spanning **Railway** (React SPA Frontend) and **Modal Cloud** (FastAPI Backend, GPU inference, and Cron evaluators).
+This guide covers deploying **acAIcia** to **Railway** — both the React SPA
+frontend and the FastAPI (Mistral) backend. The legacy Modal Cloud deployment is
+retained in `backend/app.py` for rollback only (see `docs/railway_migration.md`
+and `docs/adrs/0009-…`).
 
 ---
 
 ## 1. Prerequisites & Environment Setup
 
-### Required Credentials & Secrets
-Ensure the following keys are configured in **Modal Secrets** (`acaicia-llm-secrets`) and **Railway environment settings**:
+### Required credentials (Railway environment variables)
 
 | Secret Key | Where Used | Description |
 |---|---|---|
-| `SUPABASE_URL` | Modal, Railway | Supabase project URL |
-| `SUPABASE_KEY` | Modal, Railway | Supabase service-role key |
-| `GOOGLE_API_KEY` | Modal | Google Gemini API key |
-| `NVIDIA_API_KEY` | Modal | NVIDIA NIM API key |
-| `DEEPSEEK_API_KEY` | Modal | DeepSeek API key |
-| `HF_TOKEN` | Modal | HuggingFace token for bge-base model |
-| **`ADMIN_API_KEY`** | **Modal** | **Admin dashboard bearer token (new)** |
+| `SUPABASE_URL` | Backend | Supabase project URL |
+| `SUPABASE_KEY` | Backend | Supabase **service-role** key (bypasses RLS) |
+| `MISTRAL_API_KEY` | Backend | Mistral AI API key (inference) |
+| `ADMIN_API_KEY` | Backend | Admin dashboard bearer token |
+| `GOOGLE_API_KEY` | Backend (optional) | Only if the `gemini` provider is used |
+| `HF_TOKEN` | Backend (optional) | HuggingFace token (model is baked into the image) |
+| `LLM_PROVIDER` | Backend | `mistral` (default) |
+| `ACAICIA_BACKEND_URL` | Backend | Its own public URL (used by the eval worker) |
+| `VITE_API_BASE_URL` | Frontend | Backend URL baked into the SPA at build time |
 
-### 🔑 Admin API Key Setup
+### 🔑 Admin API Key
 
-The `/admin/*` endpoints require a bearer token for security. To configure:
+`/admin/*` and `POST /settings` require `Authorization: Bearer <ADMIN_API_KEY>`.
+The frontend `/admin` page gates all content behind key entry (key is stored in
+`localStorage` as `acaicia_admin_key`).
 
-1. **Generate a secure key**:
-   ```bash
-   openssl rand -base64 32
-   ```
-2. **Add it to Modal secrets** (in the `acaicia-llm-secrets` secret group):
-   ```
-   ADMIN_API_KEY = <your-generated-key>
-   ```
-3. **Add it to the frontend**: In the acAIcia admin dashboard, click the key icon (🔑) and enter the same key. It is stored in `localStorage` as `acaicia_admin_key` and sent as `Authorization: Bearer <key>` on all `/admin/*` requests.
+Generate one and set it as the `ADMIN_API_KEY` service variable:
+```bash
+openssl rand -hex 24
+railway variable set ADMIN_API_KEY=<key> --service "acAIcia Backend" --skip-deploys
+```
 
-> **Note**: If `ADMIN_API_KEY` is not set in Modal, all admin endpoints are open (backward-compatible fallback). **Always set this key in production.**
+> If `ADMIN_API_KEY` is unset, admin access falls back to **open**. Always set it.
 
 ---
 
 ## 2. Database Migrations
 
-Run all SQL migrations in order in the **Supabase SQL Editor**:
+Run SQL migrations in order in the **Supabase SQL Editor** (or via `psql`):
 
 ```
-database/migrations/001_add_auth_and_telemetry.sql   ← Auth, telemetry, chunk logs
-database/migrations/002_fix_semantic_cache.sql        ← Cache fix
-database/migrations/003_advanced_analytics.sql        ← Analytics platform (new)
+001_add_auth_and_telemetry.sql            ← Auth, telemetry, chunk logs, RRF RPC
+002_fix_semantic_cache.sql                ← Cache embedding-text representation
+003_advanced_analytics.sql                ← Analytics, taxonomy, RAGAS, alerts, views
+004_fix_semantic_cache_topic_guard.sql    ← Topic isolation + 0.98 threshold
+005_evaluation_system.sql                 ← Evaluation runs/details/canaries/trends
+006_fix_hybrid_retrieval_perf.sql         ← HNSW + GIN indexes (fixes hybrid timeout)
+007_db_security_perf_hardening.sql        ← invoker view, search_path, FK indexes
+008_lock_down_public_rls.sql              ← RLS deny-by-default on core tables
 ```
 
-Migration 003 adds:
-- `topic_taxonomy` — topic classification reference table
-- `analytics_daily_summary` — nightly pre-aggregated summaries
-- `hourly_activity` — heatmap data
-- `user_analytics_summary` — per-user cost summaries
-- `production_eval_scores` — per-query RAGAS scores
-- `system_alerts` — retrieval gap and health alerts
-- `popular_documents` — view of most-retrieved docs
-- Several SQL RPCs for parametric analytics queries
+> All `public` tables run with RLS enabled and **no policies** — the backend uses
+> the service-role key; the frontend never talks to Supabase directly. See ADR 0010.
 
 ---
 
-## 3. Deploying Backend to Modal Cloud
+## 3. Deploying the Backend (Railway)
 
-1. **Deploy Core FastAPI Backend Engine**:
-   ```bash
-   .venv/bin/modal deploy backend/app.py
-   ```
-   *Output Endpoint:* `https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run`
+The backend is `backend/server.py` (uvicorn) built by `backend/Dockerfile`
+(build context = repo root). CPU-only PyTorch + the `bge-base-en-v1.5` embedding
+model are baked into the image.
 
-2. **Deploy Gemma Inference Class (Optional / Guest Provider)**:
-   ```bash
-   .venv/bin/modal deploy backend/gemma_inference.py
-   ```
+```bash
+railway up --service "acAIcia Backend" --environment production
+```
 
-3. **Verify deployment logs**:
-   ```bash
-   .venv/bin/modal app logs acaicia-backend --last 100
-   ```
+- Public URL: `https://acaicia-backend-production.up.railway.app`
+- Health check: `GET /health`
+- Service config: `build.dockerfilePath = backend/Dockerfile` (set via
+  `railway api`/dashboard), `healthcheckPath = /health`.
 
 ---
 
-## 4. Deploying Frontend to Railway
+## 4. Deploying the Frontend (Railway)
 
-1. **Build Configuration (`Dockerfile`)**:
-   Railway uses a multi-stage build:
-   - **Stage 1 (Builder)**: Node 20 environment compiles React SPA (`npm run build`) into `dist/`.
-   - **Stage 2 (Server)**: Lightweight Node server running `serve -s dist -l $PORT`.
+The frontend is the multi-stage root `Dockerfile` (Node 20 → `serve`).
 
-2. **Trigger Deployment**:
-   ```bash
-   git add .
-   git commit -m "deploy: advanced analytics dashboard"
-   git push origin main
-   ```
-   Railway automatically detects the push and deploys to [https://acaicia.org](https://acaicia.org).
+```bash
+railway up --service "acAIcia" --environment production
+```
 
-3. **Check Railway Logs**:
-   ```bash
-   railway status
-   railway logs -n 100
-   ```
-
-4. **Deploy Backup Frontend to Modal**:
-   ```bash
-   .venv/bin/modal deploy frontend/modal_app.py
-   ```
-   *Output Endpoint:* `https://ciforicraf-ai--acaicia-frontend-fastapi-app-entrypoint.modal.run`
+- Live URL: https://acaicia.org
+- `VITE_API_BASE_URL` is declared as a Docker build `ARG` and must point at the
+  backend URL so Vite bakes it in at build time.
 
 ---
 
 ## 5. Verification & Health Monitoring
 
-- **Check Modal Containers & Logs**:
-  ```bash
-  .venv/bin/modal app list
-  .venv/bin/modal app logs acaicia-backend
-  ```
+```bash
+# Backend logs
+railway logs --service "acAIcia Backend" --lines 100
 
-- **Test the new admin endpoints** (replace `<KEY>` with your ADMIN_API_KEY):
-  ```bash
-  # Metrics with 7-day filter
-  curl -H "Authorization: Bearer <KEY>" \
-    "https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run/admin/metrics?start_date=$(date -d '-7 days' +%Y-%m-%d)"
+# Health + settings
+curl https://acaicia-backend-production.up.railway.app/health
+curl https://acaicia-backend-production.up.railway.app/settings
 
-  # User cost breakdown
-  curl -H "Authorization: Bearer <KEY>" \
-    "https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run/admin/users"
+# Admin endpoints (replace <KEY>)
+curl -H "Authorization: Bearer <KEY>" \
+  "https://acaicia-backend-production.up.railway.app/admin/metrics"
+curl -H "Authorization: Bearer <KEY>" \
+  "https://acaicia-backend-production.up.railway.app/admin/users"
+curl -H "Authorization: Bearer <KEY>" \
+  "https://acaicia-backend-production.up.railway.app/admin/export/csv" -o logs.csv
+```
 
-  # System alerts
-  curl -H "Authorization: Bearer <KEY>" \
-    "https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run/admin/alerts"
+---
 
-  # CSV export
-  curl -H "Authorization: Bearer <KEY>" \
-    "https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run/admin/export/csv" -o logs.csv
-  ```
+## 6. LLM Provider Cost Reference
 
-- **LLM Provider Cost Reference** (hardcoded in `backend/app.py`):
+Hardcoded in `backend/config.py` (`COST_PER_1M_TOKENS`) and used for the
+`estimated_cost_usd` telemetry + admin cache stats. Verified against
+<https://mistral.ai/pricing/api/> (2026-09):
 
-  | Provider | Input (per 1M tokens) | Output (per 1M tokens) |
-  |---|---|---|
-  | Gemini 2.5 Flash | $1.50 | $7.50 |
-  | NVIDIA Llama 3.3 70B | $0.35 | $0.40 |
-  | DeepSeek Reasoner | $0.44 | $0.88 |
-  | Modal Gemma (self-hosted) | $0.00 | $0.00 |
+| Model | Role | Input ($/1M) | Output ($/1M) |
+|---|---|---|---|
+| Mistral Small 4 (`mistral-small-latest`) | Synthesis, Architect | $0.15 | $0.60 |
+| Ministral 3B (`ministral-3b-latest`) | Guardian | $0.10 | $0.10 |
+| Ministral 8B (`ministral-8b-latest`) | Judge / fallback | $0.15 | $0.15 |
 
-  > Update these rates in `COST_PER_1M_TOKENS` dict in `backend/app.py` as provider prices change.
+> Update `COST_PER_1M_TOKENS` in `backend/config.py` (not `backend/app.py`) as
+> provider prices change, then redeploy the backend.

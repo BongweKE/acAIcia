@@ -1,0 +1,29 @@
+# Keep the Docker build context small for both services.
+.git
+.github
+.agents
+.venv
+.chainlit
+.deepeval
+.pytest_cache
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+node_modules
+**/node_modules
+frontend/dist
+frontend/legacy_chainlit
+backups
+scratch
+future-changes
+ingestion
+database
+tests
+backend/.env
+backend/.env.example
+*.md
+!README.md
+*.png
+*.pdf
+excel link.md

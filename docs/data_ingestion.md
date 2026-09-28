@@ -4,6 +4,12 @@
 
 To keep embedding costs practically zero and process massive libraries exceptionally quickly, the ingestion framework (`ingestion/`) operates directly on **Modal Volumes and T4/A10G Cloud GPUs**.
 
+> ⚠️ **Note (2026-09-28)**: ingestion still runs on the legacy Modal workspace, which is
+> currently **disabled** (over the $30 Starter spend limit). Until that workspace is
+> unblocked or ingestion is migrated off Modal, new document ingestion is paused. The
+> query backend (Railway + Mistral) is unaffected and continues serving the existing
+> corpus. See `docs/railway_migration.md`.
+
 ## Pipeline Architecture
 
 ```mermaid

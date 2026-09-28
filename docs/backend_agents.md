@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md)
 
-The core brain of acAIcia is a FastAPI app (`backend/app.py`) hosted on **Modal**. It utilizes a sophisticated multi-agent pipeline where specialized agents validate, optimize, retrieve, and synthesize research contexts pulled from internal publication knowledge bases.
+The core brain of acAIcia is a FastAPI app (`backend/server.py`, served by `backend/pipeline.py`) hosted on **Railway**. It utilizes a sophisticated multi-agent pipeline where specialized agents validate, optimize, retrieve, and synthesize research contexts pulled from internal publication knowledge bases. (A legacy Modal deployment exists in `backend/app.py` for rollback only.)
 
 ## Comprehensive Sequence Diagram
 
@@ -107,14 +107,14 @@ acAIcia includes a comprehensive admin analytics backend supporting parametric f
 - `POST /feedback`: Records inline upvote/downvote ratings and user corrections in `query_feedback`.
 
 ### Topic Classification Subsystem
-Query topic classification uses a **hybrid keyword-first pass** matching 9 research domains (`peatlands`, `fire_management`, `food_systems`, `agroforestry`, `climate_change`, `soil_science`, `biodiversity`, `policy`, `methodology`). Unmatched queries fall back to **Modal Gemma** for LLM classification without incurring extra API costs.
+Query topic classification uses a **hybrid keyword-first pass** matching 9 research domains (`peatlands`, `fire_management`, `food_systems`, `agroforestry`, `climate_change`, `soil_science`, `biodiversity`, `policy`, `methodology`). Unmatched queries fall back to an LLM classifier (Mistral `ministral-3b-latest` on Railway; Modal Gemma on the legacy deployment).
 
 ### Production RAGAS Scoring
-Approximately **5% of live production traffic** is probabilistically sampled and evaluated asynchronously by Modal Gemma for RAGAS metrics:
+Approximately **5% of live production traffic** is probabilistically sampled and evaluated asynchronously by a Mistral judge (`ministral-8b-latest`) for RAGAS metrics:
 - **Faithfulness** (0.0-1.0): Answer support by retrieved context.
 - **Answer Relevance** (0.0-1.0): Relevance of answer to query.
 - **Context Precision** (0.0-1.0): Relevance of retrieved document chunks.
 
 ### Security & Authentication
-All `/admin/*` endpoints require an `Authorization: Bearer <ADMIN_API_KEY>` header when `ADMIN_API_KEY` is configured in Modal secrets.
+All `/admin/*` endpoints require an `Authorization: Bearer <ADMIN_API_KEY>` header when `ADMIN_API_KEY` is configured in Railway service variables.
 

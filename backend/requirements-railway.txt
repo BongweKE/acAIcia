@@ -1,0 +1,13 @@
+# Runtime dependencies for the acAIcia standalone backend (Railway).
+# PyTorch is installed separately in the Dockerfile from the CPU wheel index.
+fastapi[standard]
+uvicorn[standard]
+pydantic
+supabase
+mistralai
+python-dotenv
+numpy
+sentence-transformers
+requests
+google-genai
+deepeval==4.2.2

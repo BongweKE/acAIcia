@@ -56,3 +56,10 @@ Thumbs.db
 
 # Jupyter Notebook
 .ipynb_checkpoints
+.deepeval/
+
+# opencode local tooling (MCP config + auth token are machine-local)
+.opencode/
+
+# Deployment backups
+/acaicia-backups/
