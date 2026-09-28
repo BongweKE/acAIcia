@@ -59,17 +59,40 @@ flowchart TD
 
 ### Preferred Step-by-Step Execution Sequence
 
-1. **Step 1 (Immediate Hotfix Batch — P0)**: Ship Issues **#13, #14, #15, #16, #17, #18** in a single focused PR.
-   - *Why*: Eliminates active 401 errors, stops admin UI freezes on failed evals, restores exact token accounting for billing, secures rollback routes, and satisfies ADR 0010 database security before running Migration 005.
-2. **Step 2 (UX & Cost Calibration — P1)**: Implement Issue **#1** (Streaming SSE) and update Issue **#20** (`docs/cost_model.md`).
-   - *Why*: Streaming transforms perceived latency from 15–45s down to <2s. Calibrated cost modeling provides clear financial visibility before marketing acAIcia to more researchers.
-3. **Step 3 (Retrieval Accuracy & Gateway Fallback — P1)**: Implement Issue **#3** (Reranker) followed by Issue **#2** (LiteLLM Gateway).
-   - *Why*: Reranking improves `hit@1` by +5pp; LiteLLM guarantees zero-downtime failover across LLM providers.
-4. **Step 4 (Multi-Replica State Preparation — P2)**: Implement Issue **#19** (Shared Query Status Store) before increasing Railway replicas beyond 1.
-   - *Why*: Ephemeral local file status (`/tmp/acaicia_status`) fails as soon as a 2nd Railway container is spun up.
-5. **Step 5 (Architecture & Automated Quality Gates — P2)**: Implement Issue **#6** (pgvector cache), Issue **#8** (CI evaluation gate), and Issue **#7** (Langfuse tracing).
-6. **Step 6 (Advanced RAG & Graph Refactoring — P2)**: Implement Issues **#4, #5** (HyDE / CRAG) and **#12** (LangGraph).
-7. **Step 7 (Hardening & Cleanup — P3)**: Implement Issues **#9, #11, #10** (bge-m3 re-embedding, JSON schema enforcement, and archiving legacy Modal code).
+1. **Step 1 (Immediate Hotfix Batch — P0 / Sprint 0)**: Ship Issues **#13 → #14 → #15 → #16 → #17 → #18** in a single focused PR.
+   - **Order**:
+     1. **#13** (Migration 005 RLS & Invoker Fix): Must be fixed and applied to Supabase first to enforce ADR 0010 security and allow evaluation details and canaries to persist.
+     2. **#14** (Admin CSV Export 401 Fix): Restores broken log export functionality in the production `/admin` dashboard.
+     3. **#15** (Exact Token Telemetry): Eliminates 50/50 token split heuristic and stops 300% cost inflation in subsequent query telemetry.
+     4. **#16** (Eval Worker Failure State Handling): Updates `evaluation_runs.status = 'failed'` on uncaught exceptions, ending admin UI spinner deadlocks.
+     5. **#17** (Legacy Modal POST /settings Auth): Closes open endpoint in rollback `backend/app.py`.
+     6. **#18** (Fix Dev Tool URLs): Points CLI and DeepEval tooling to Railway by default.
+   - *Rationale*: Eliminates active 401 errors, stops admin UI freezes on failed evals, restores exact token accounting for billing, secures rollback routes, and satisfies ADR 0010 database security before running Migration 005.
+
+2. **Step 2 (UX & Cost Calibration — P1 / Phase 1)**: Implement **#20 → #1 → #3 → #2**.
+   - **Order**:
+     1. **#20** (Cost Model Refinements): 1-day documentation task; clarifies multi-replica compute overheads and cache compounding to establish budgets before major refactors.
+     2. **#1** (Streaming Responses via SSE): Highest-impact user-facing improvement; drops perceived TTFT from ~25s to <2s.
+     3. **#3** (Cross-Encoder Reranker): Low effort (2–3d) retrieval precision boost (+5pp hit@1) directly on top of hybrid retrieval.
+     4. **#2** (LiteLLM Unified Gateway): Standardizes multi-provider LLM calling and enables automated failover on 429/503 errors.
+   - *Rationale*: Calibrated financial modeling gives clear budget visibility for Phase 1 scaling; SSE transforms user experience; reranking boosts answer quality; LiteLLM guarantees high availability.
+
+3. **Step 3 (Multi-Replica State & Quality Gates — P2 / Phase 2)**: Implement **#19 → #6 → #8 → #7 → #4 & #5 → #12**.
+   - **Order**:
+     1. **#19** (Shared Status Store): **Hard prerequisite** before scaling Railway backend beyond 1 container replica to avoid polling 404s.
+     2. **#6** (pgvector Semantic Cache): Standalone DB index upgrade; eliminates Python memory scan and scales cache to 100k+ entries.
+     3. **#8** (Automated CI Evaluation Gate): Establishes baseline quality protection in GitHub Actions before undertaking major pipeline refactoring.
+     4. **#7** (Langfuse Observability): Deploys distributed tracing across agents, providing visual telemetry needed to debug complex multi-step pipelines.
+     5. **#4 & #5** (HyDE & CRAG): Introduces query expansion and corrective retrieval gating.
+     6. **#12** (LangGraph Multi-Agent Pipeline): Refactors the procedural pipeline into a directed state graph with checkpoints and node retries.
+   - *Rationale*: Shared state unblocks horizontal scaling; CI gates and observability must be established *before* the LangGraph refactor to catch regressions immediately.
+
+4. **Step 4 (Hardening & Deprecation — P3 / Phase 3)**: Implement **#11 → #9 → #10**.
+   - **Order**:
+     1. **#11** (Structured Outputs via JSON Schema): Low effort (2–3d); eliminates regex and string parsing for Guardian and Architect.
+     2. **#9** (Embeddings + Chunking Upgrade): High effort (6–10d); runs batch re-embedding job to upgrade to bge-m3 and parent-child chunking.
+     3. **#10** (Deprecate & Archive Modal Codebase): Moves `backend/app.py` to `archive/` once Railway backend demonstrates 90+ days of production stability.
+   - *Rationale*: Low-hanging schema reliability first, followed by corpus-wide embedding migration, concluding with decommissioning rollback artifacts.
 
 ---
 

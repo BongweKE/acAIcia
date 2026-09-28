@@ -37,6 +37,14 @@ Zero-to-low effort fixes that eliminate active runtime failures, security policy
 - `POST /settings` on legacy `app.py` requires `ADMIN_API_KEY`.
 - `cli_admin.py` and `tests/deepeval_suite.py` target Railway backend by default.
 
+**Suggested order within Phase 0 (Sprint 0)**:
+1. **#13** (Migration 005 RLS & Invoker Fix) — Essential DB migration; establishes ADR 0010 security baseline and unblocks eval persistence.
+2. **#14** (Admin CSV 401 Fix) — Fixes broken query param auth for admin log exports.
+3. **#15** (Exact Token Telemetry) — Eliminates 50/50 token split heuristic and stops 300% cost inflation in subsequent query logs.
+4. **#16** (Eval Worker Failure State Handling) — Prevents admin UI infinite loading spin on eval background worker exceptions.
+5. **#17** (Legacy Modal Rollback Auth) — Closes unauthenticated settings endpoint in rollback `backend/app.py`.
+6. **#18** (Fix Dev Tool URLs) — Updates fallback URLs in CLI and test tooling to point to active Railway backend.
+
 ---
 
 ## Phase 1 — Immediate Wins & Strategic Calibration (P1)
@@ -45,7 +53,7 @@ High ROI, moderate effort. Delivers visible UX improvements, cost transparency, 
 
 | # | Issue | Effort | Metric |
 |---|---|---|---|
-| 1 | [Streaming responses + replace volume/file polling (SSE)](https://github.com/BongweKE/acAIcia/issues/1) | M (5–8d) | Time-to-first-token < 2.0s; eliminates polling |
+| 1 | [Streaming responses + replace file polling (SSE)](https://github.com/BongweKE/acAIcia/issues/1) | M (5–8d) | Time-to-first-token < 2.0s; eliminates polling |
 | 20 | [Cost Model Refinements: Cache Progression, Multi-Replica Overages, Mistral Seat](https://github.com/BongweKE/acAIcia/issues/20) | S (1d) | Accurate multi-replica budget & cache savings curve |
 | 3 | [Cross-encoder reranker for hybrid retrieval](https://github.com/BongweKE/acAIcia/issues/3) | S (2–3d) | hit@1 +5pp on test questions |
 | 2 | [Unified LLM gateway via LiteLLM with provider fallback](https://github.com/BongweKE/acAIcia/issues/2) | M (3–5d) | Zero downtime on Mistral 429/503; automatic fallback to Gemini/DeepSeek |
@@ -55,6 +63,12 @@ High ROI, moderate effort. Delivers visible UX improvements, cost transparency, 
 - Cost model documents multi-replica compute overages and 10% → 30% cache progression.
 - `hit@1` improves by ≥ 5pp with cross-encoder reranker.
 - LLM calls automatically fail over if the primary provider encounters errors.
+
+**Suggested order within Phase 1**:
+1. **#20** (Cost Model Refinements) — Quick 1-day documentation update; clarifies multi-replica compute overheads and cache compounding to establish budgets before major refactors.
+2. **#1** (Streaming Responses via SSE) — Highest-ROI user-facing improvement; drops perceived TTFT from ~25s to <2s.
+3. **#3** (Cross-Encoder Reranker) — Low effort (2–3d) retrieval precision boost (+5pp hit@1) directly on top of hybrid retrieval.
+4. **#2** (LiteLLM Unified Gateway) — Standardizes multi-provider LLM calling and enables automated failover on 429/503 errors.
 
 ---
 
@@ -91,6 +105,11 @@ Deferred improvements. Lower immediate urgency but high long-term quality and ma
 | 9 | [Embeddings + chunking upgrade (`BAAI/bge-m3` + parent-child)](https://github.com/BongweKE/acAIcia/issues/9) | L (6–10d) | Multilingual search support; context precision +0.08 |
 | 11 | [Structured outputs + retries for Guardian/Architect](https://github.com/BongweKE/acAIcia/issues/11) | S (2–3d) | Zero malformed output parsing errors via JSON schema |
 | 10 | [Deprecate & archive legacy Modal codebase (`app.py`, `gemma_inference.py`)](https://github.com/BongweKE/acAIcia/issues/10) | S (2–3d) | Root `backend/` contains only active Railway modules |
+
+**Suggested order within Phase 3**:
+1. **#11** (Structured Outputs via JSON Schema) — Low-effort win (2–3d) that eliminates regex/string parsing for Guardian and Architect.
+2. **#9** (Embeddings + Chunking Upgrade) — High-effort upgrade (6–10d) to `bge-m3` with parent-child chunking and database re-embedding.
+3. **#10** (Deprecate & Archive Modal Codebase) — Move `backend/app.py` to `archive/` once Railway backend demonstrates 90+ days of production stability.
 
 ---
 
