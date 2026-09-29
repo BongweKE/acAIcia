@@ -8,6 +8,10 @@ from fastapi.testclient import TestClient
 from backend.config import COST_PER_1M_TOKENS
 from backend.core import build_llm_caller, build_llm_stream_caller, estimate_query_cost
 from backend.pipeline import run_rag_query, run_rag_query_stream
+
+os.environ.setdefault("SUPABASE_URL", "https://mock.supabase.co")
+os.environ.setdefault("SUPABASE_KEY", "mock-key-for-testing")
+
 from backend.server import app
 
 
