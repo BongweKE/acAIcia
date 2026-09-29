@@ -2,20 +2,26 @@
 
 Welcome to the **acAIcia** project! Due to our unique architecture, strict uptime requirements, and complex multi-agent structure, all contributions must strictly adhere to this SOP.
 
+> [!CAUTION]
+> **DIRECT PUSHES TO `main` OR `staging` ARE STRICTLY PROHIBITED.**
+> All commits to protected branches MUST arrive via merged Pull Requests. Direct pushes trigger `.github/workflows/main-guard.yml` and will be flagged as security/governance violations.
+> Full operating details: see [SOP 001: Branching, Pull Request & Deployment Governance](docs/sops/branch-and-pr-governance.md).
+
 ## 1. Governance & CI/CD Lifecycle
 
 We enforce a strict branching and environment progression strategy:
-- **`main`**: The production branch. Direct pushes are restricted.
-- **`staging`**: The pre-production testing branch.
-- **Feature Branches**: `feat/issue-ID-name` or `fix/issue-ID-name`.
+- **`main`**: The production branch. Protected by `main-guard.yml`. Pushes must only originate from merged PRs.
+- **`staging`**: The pre-production testing branch. Direct pushes are prohibited.
+- **Feature Branches**: `feat/<issue-id>-<name>`, `fix/<issue-id>-<name>`, or `docs/<name>`.
 
 ### Workflow
-1. **GitHub Issues**: Every change must map to a tracked GitHub Issue.
+1. **GitHub Issues**: Every change must map to a tracked GitHub Issue (`gh issue list`).
 2. **Solution Planning & ADRs**: Significant changes (e.g., adding Langfuse, pgvector caches, or changing LLM gateways) require an Architecture Decision Record (ADR) stored in `docs/adrs/`. 
-3. **Implementation**: Code locally on your feature branch. Write comprehensive tests (all 117+ tests must pass).
-4. **Pull Request (PR)**: Target the `staging` branch. This triggers the Automated CI Evaluation Gate (.github/workflows/ci.yml).
-5. **Staging Review**: Once CI passes, review on the staging environment.
-6. **Promotion to Prod**: Merge `staging` into `main` to trigger the production deployment via Railway.
+3. **Branching**: Branch from latest `main` or `staging` (`git checkout -b feat/...`).
+4. **Local Verification**: Pass all 125+ tests (`.venv/bin/pytest tests/`) and frontend typecheck (`npm run build`).
+5. **Pull Request (PR)**: Open PR targeting `staging` (`gh pr create`). This triggers automated CI gates (`pr.yml`, `eval-gate.yml`).
+6. **PR Review & Merge**: Once CI passes, merge via `gh pr merge --squash` or `gh pr merge --merge`.
+7. **Promotion to Prod**: Merge `staging` into `main` via PR to trigger the production deployment.
 
 ## 2. ADR Requirements
 
