@@ -14,3 +14,8 @@ This directory contains records of key architectural decisions made during the d
 | [0008](0008-query-polling-resilience-and-database-status-fallback.md) | Query Polling Resilience and Database Status Fallbacks | Approved | 2026-08-31 |
 | [0009](0009-migrate-backend-from-modal-to-railway.md) | Migrate the Backend from Modal Cloud to Railway (Mistral-only) | Approved | 2026-09-28 |
 | [0010](0010-database-security-posture-rls-deny-by-default.md) | Database Security Posture — RLS Deny-by-Default with a Service-Role Backend | Approved | 2026-09-28 |
+| [0011](0011-multi-replica-shared-query-status-store.md) | Multi-Replica Shared Query Status Store | Accepted | 2026-09-29 |
+| [0012](0012-native-pgvector-semantic-cache.md) | Native pgvector Semantic Cache | Accepted | 2026-09-29 |
+| [0013](0013-cross-encoder-reranker-for-hybrid-search-precision.md) | Cross-Encoder Reranker for Hybrid Search Precision | Accepted | 2026-09-29 |
+| [0014](0014-litellm-unified-model-gateway-with-multi-provider-fallback.md) | LiteLLM Unified Model Gateway with Multi-Provider Fallback | Accepted | 2026-09-29 |
+| [0015](0015-database-schema-disambiguation-canary-integrity-evaluation-trends-aggregation.md) | Database Schema Disambiguation, Canary Integrity & Evaluation Trends Aggregation | Accepted | 2026-09-29 |

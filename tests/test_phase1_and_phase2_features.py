@@ -154,9 +154,13 @@ def test_native_pgvector_semantic_cache_rpc_hit(monkeypatch):
         status_writer=lambda s: status_updates.append(s),
     )
 
-    # Must verify RPC was called
-    rpc_names = [c.args[0] for c in mock_supabase.rpc.call_args_list if c.args]
-    assert "match_semantic_cache_pgvector" in rpc_names
+    # Must verify RPC was called with disambiguated parameter names
+    rpc_calls = [c for c in mock_supabase.rpc.call_args_list if c.args and c.args[0] == "match_semantic_cache_pgvector"]
+    assert len(rpc_calls) > 0
+    rpc_args = rpc_calls[0].args[1]
+    assert "p_query_embedding" in rpc_args
+    assert "p_match_threshold" in rpc_args
+    assert "p_filter_topic" in rpc_args
 
     # Status must be completed with cached response
     last_status = status_updates[-1]
