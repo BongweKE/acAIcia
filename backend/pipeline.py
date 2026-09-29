@@ -260,9 +260,9 @@ def run_rag_query(
                 rpc_res = supabase.rpc(
                     "match_semantic_cache_pgvector",
                     {
-                        "query_embedding": user_emb_list,
-                        "match_threshold": CACHE_SIMILARITY_THRESHOLD,
-                        "filter_topic": None if user_topic == "general" else user_topic,
+                        "p_query_embedding": user_emb_list,
+                        "p_match_threshold": CACHE_SIMILARITY_THRESHOLD,
+                        "p_filter_topic": None if user_topic == "general" else user_topic,
                     },
                 ).execute()
                 if (
@@ -850,9 +850,9 @@ def run_rag_query_stream(
                     rpc_res = supabase.rpc(
                         "match_semantic_cache_pgvector",
                         {
-                            "query_embedding": user_emb_list,
-                            "match_threshold": CACHE_SIMILARITY_THRESHOLD,
-                            "filter_topic": None if user_topic == "general" else user_topic,
+                            "p_query_embedding": user_emb_list,
+                            "p_match_threshold": CACHE_SIMILARITY_THRESHOLD,
+                            "p_filter_topic": None if user_topic == "general" else user_topic,
                         },
                     ).execute()
                     if (
