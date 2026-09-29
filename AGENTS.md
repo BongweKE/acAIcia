@@ -195,3 +195,12 @@ The backend query engine (`backend/pipeline.py`, served by `backend/server.py`) 
    - The authoritative engineering backlog is tracked in [`BACKLOG.md`](BACKLOG.md) and [`future-changes/`](future-changes/).
    - Priority sequence: **P0 Hotfixes & Security** (Sprint 0: Migration 005 RLS, CSV 401 fix, exact token telemetry, eval worker error handling, rollback auth) → **P1 Wins** (Phase 1: Streaming SSE, cost model updates, reranker, LiteLLM gateway) → **P2 Scale** (Phase 2: multi-replica shared store, pgvector cache, CI eval gate, Langfuse) → **P3 Hardening** (Phase 3: bge-m3, structured outputs, Modal deprecation).
 
+8. **Branch Protection & Pull Request Governance (MANDATORY SOP 001)**:
+   - **Direct pushes to `main` or `staging` are strictly prohibited.**
+   - All commits must originate from a dedicated feature, fix, or documentation branch (`feat/*`, `fix/*`, `docs/*`).
+   - Every change must pass local unit tests (`.venv/bin/pytest tests/`) and frontend typechecks (`npm run build`) before remote push.
+   - Pushes must arrive via Pull Requests created with `gh pr create` and merged via `gh pr merge`.
+   - `.github/workflows/main-guard.yml` enforces that commits arriving on `main` have an associated PR. Direct pushes fail CI.
+   - Consult [SOP 001: Branching, Pull Request & Deployment Governance](docs/sops/branch-and-pr-governance.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md) for full protocol.
+
+
