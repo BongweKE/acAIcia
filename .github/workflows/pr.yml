@@ -43,6 +43,11 @@ jobs:
           pip install -r requirements.txt
           pip install pytest deepeval pytest-asyncio
       - name: Run Pytest
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://mock.supabase.co' }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || 'mock-key-for-testing' }}
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY || 'test-admin-key' }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY || 'mock-mistral-key' }}
         run: |
           source .venv/bin/activate
           python -m pytest tests/

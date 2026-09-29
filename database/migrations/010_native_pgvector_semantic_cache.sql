@@ -14,9 +14,9 @@ CREATE INDEX IF NOT EXISTS idx_semantic_cache_topic_category
 
 -- RPC for native pgvector similarity matching with topic guard
 CREATE OR REPLACE FUNCTION public.match_semantic_cache_pgvector (
-  query_embedding vector(768),
-  match_threshold float default 0.95,
-  filter_topic text default null
+  p_query_embedding vector(768),
+  p_match_threshold float default 0.95,
+  p_filter_topic text default null
 )
 RETURNS TABLE (
   cache_id uuid,
@@ -35,11 +35,11 @@ AS $$
     c.response_text,
     c.sources,
     c.topic_category,
-    1 - (c.query_embedding <=> query_embedding) AS similarity
+    1 - (c.query_embedding <=> p_query_embedding) AS similarity
   FROM semantic_cache c
   WHERE c.query_embedding IS NOT NULL
-    AND 1 - (c.query_embedding <=> query_embedding) >= match_threshold
-    AND (filter_topic IS NULL OR c.topic_category = filter_topic)
-  ORDER BY c.query_embedding <=> query_embedding ASC
+    AND 1 - (c.query_embedding <=> p_query_embedding) >= p_match_threshold
+    AND (p_filter_topic IS NULL OR c.topic_category = p_filter_topic)
+  ORDER BY c.query_embedding <=> p_query_embedding ASC
   LIMIT 1;
 $$;

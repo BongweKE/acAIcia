@@ -1,7 +1,7 @@
 # ADR 0012: Native pgvector Semantic Cache
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 The current semantic cache loads up to 200 rows into Python memory and executes a brute-force cosine similarity loop in `backend/core.py`. As the cache size grows past 1,000 entries, this introduces memory bloat and latency bottlenecks.
