@@ -18,8 +18,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone as tz
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .config import (
@@ -31,6 +32,7 @@ from .config import (
 from .core import (
     FileSettingsStore,
     build_llm_caller,
+    build_llm_stream_caller,
     get_cached_embed_model,
     get_mistral_client,
     invalidate_provider_cache,
@@ -38,7 +40,7 @@ from .core import (
     resolve_provider,
     verify_admin_key,
 )
-from .pipeline import run_rag_query
+from .pipeline import run_rag_query, run_rag_query_stream
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging / env
@@ -95,6 +97,7 @@ def _mistral_judge(prompt: str) -> str:
 
 
 call_llm = build_llm_caller(provider_getter, logger)
+call_llm_stream = build_llm_stream_caller(provider_getter, logger)
 
 _QUERY_WORKERS = int(os.environ.get("ACAICIA_QUERY_WORKERS", "4"))
 _executor = ThreadPoolExecutor(max_workers=_QUERY_WORKERS, thread_name_prefix="rag")
@@ -875,7 +878,28 @@ def _run_evaluation_job(run_id: str, dataset: str, limit: int, eval_mode: str) -
             include_canaries=(eval_mode != "retrieval_only"),
         )
     except Exception as err:
-        logger.error("Evaluation background thread failed: %s", err)
+        logger.error("Evaluation background thread failed for run %s: %s", run_id, err, exc_info=True)
+        try:
+            update_data = {
+                "status": "failed",
+                "details": {
+                    "status": "failed",
+                    "error": str(err),
+                    "failed_at": datetime.now(tz.utc).isoformat(),
+                },
+            }
+            try:
+                supabase.table("evaluation_runs").update(update_data).eq("run_id", run_id).execute()
+            except Exception:
+                supabase.table("evaluation_runs").update({
+                    "details": {
+                        "status": "failed",
+                        "error": str(err),
+                        "failed_at": datetime.now(tz.utc).isoformat(),
+                    }
+                }).eq("run_id", run_id).execute()
+        except Exception as db_err:
+            logger.error("Failed to update evaluation_runs status to failed for run %s: %s", run_id, db_err)
 
 
 @app.post("/admin/evaluations/trigger")
@@ -1056,8 +1080,11 @@ def export_query_logs_csv(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     authorization: Optional[str] = Header(default=None),
+    auth_token: Optional[str] = Query(default=None, alias="authorization"),
+    token_param: Optional[str] = Query(default=None, alias="token"),
 ):
-    _require_admin(authorization)
+    token = authorization or auth_token or token_param
+    _require_admin(token)
     try:
         import csv
         import io
@@ -1117,6 +1144,43 @@ def handle_query(request: QueryRequest):
         raise HTTPException(
             status_code=500, detail=f"Failed to initialize query processing: {e}"
         )
+
+
+@app.post("/query/stream")
+def handle_query_stream(request: QueryRequest):
+    query_id = str(uuid.uuid4())
+    embed_model = get_cached_embed_model(logger)
+
+    def event_stream():
+        import json
+
+        for event in run_rag_query_stream(
+            query_id=query_id,
+            user_query=request.query,
+            conversation_history=request.conversation_history,
+            session_id=request.session_id,
+            user_id=request.user_id,
+            guest_session_id=request.guest_session_id,
+            supabase=supabase,
+            embed_model=embed_model,
+            call_llm=call_llm,
+            call_llm_stream=call_llm_stream,
+            provider_getter=provider_getter,
+            status_writer=lambda payload: STORE.write_status(query_id, payload),
+            topic_classifier=_mistral_classifier,
+            logger=logger,
+        ):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/query/status/{query_id}")

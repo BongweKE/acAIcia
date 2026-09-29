@@ -20,14 +20,14 @@
 
 Zero-to-low effort fixes that eliminate active runtime failures, security policy violations (ADR 0010), and telemetry distortions in production. Ship immediately in a single batch.
 
-| # | Issue | Effort | Metric |
-|---|---|---|---|
-| 13 | [Fix Migration 005 (RLS & Security Invoker) + Apply to Supabase](https://github.com/BongweKE/acAIcia/issues/13) | S (0.5d) | 100% ADR 0010 RLS compliance; eval tables persist |
-| 14 | [Fix Admin CSV Export 401 Unauthorized via Query Param Auth](https://github.com/BongweKE/acAIcia/issues/14) | S (0.5d) | Zero 401 errors on admin CSV downloads |
-| 15 | [Exact Token Telemetry & Eliminate Heuristic 50/50 Token Split](https://github.com/BongweKE/acAIcia/issues/15) | S (1d) | Exact prompt/completion token tracking; eliminates 300% cost skew |
-| 16 | [Fix Evaluation Background Worker Uncaught Exception Handling](https://github.com/BongweKE/acAIcia/issues/16) | S (0.5d) | Zero infinite loading hangs in Admin UI on eval failure |
-| 17 | [Secure Legacy Modal Rollback `POST /settings` with Admin Auth](https://github.com/BongweKE/acAIcia/issues/17) | S (0.2d) | Zero unauthenticated admin endpoints on rollback |
-| 18 | [Update Stale Modal Backend URLs in Dev & Test Tooling](https://github.com/BongweKE/acAIcia/issues/18) | S (0.2d) | Out-of-the-box working CLI and DeepEval test suite |
+| # | Issue | Effort | Metric | Status |
+|---|---|---|---|---|
+| 13 | [Fix Migration 005 (RLS & Security Invoker) + Apply to Supabase](https://github.com/BongweKE/acAIcia/issues/13) | S (0.5d) | 100% ADR 0010 RLS compliance; eval tables persist | In Progress / Implemented |
+| 14 | [Fix Admin CSV Export 401 Unauthorized via Query Param Auth](https://github.com/BongweKE/acAIcia/issues/14) | S (0.5d) | Zero 401 errors on admin CSV downloads | In Progress / Implemented |
+| 15 | [Exact Token Telemetry & Eliminate Heuristic 50/50 Token Split](https://github.com/BongweKE/acAIcia/issues/15) | S (1d) | Exact prompt/completion token tracking; eliminates 300% cost skew | In Progress / Implemented |
+| 16 | [Fix Evaluation Background Worker Uncaught Exception Handling](https://github.com/BongweKE/acAIcia/issues/16) | S (0.5d) | Zero infinite loading hangs in Admin UI on eval failure | In Progress / Implemented |
+| 17 | [Secure Legacy Modal Rollback `POST /settings` with Admin Auth](https://github.com/BongweKE/acAIcia/issues/17) | S (0.2d) | Zero unauthenticated admin endpoints on rollback | In Progress / Implemented |
+| 18 | [Update Stale Modal Backend URLs in Dev & Test Tooling](https://github.com/BongweKE/acAIcia/issues/18) | S (0.2d) | Out-of-the-box working CLI and DeepEval test suite | In Progress / Implemented |
 
 **Phase 0 success criteria**:
 - Supabase SQL Editor applies Migration 005 with RLS enabled on `evaluation_details` and `canary_questions`.
@@ -45,18 +45,26 @@ Zero-to-low effort fixes that eliminate active runtime failures, security policy
 5. **#17** (Legacy Modal Rollback Auth) — Closes unauthenticated settings endpoint in rollback `backend/app.py`.
 6. **#18** (Fix Dev Tool URLs) — Updates fallback URLs in CLI and test tooling to point to active Railway backend.
 
+### Progress & Verification Findings
+- **Issue #13**: Verified that `evaluation_details` and `canary_questions` were missing from the production schema cache (`PGRST205`). Hardened `005_evaluation_system.sql` with `ENABLE ROW LEVEL SECURITY` and `security_invoker = true` on `evaluation_score_trends`.
+- **Issue #14**: Root cause identified: Frontend `client.ts` was appending `?authorization=Bearer ...` query parameter while `server.py` and `app.py` only accepted `Header(default=None)`. Fixed by accepting `auth_token: Optional[str] = Query(default=None, alias="authorization")` and `token_param: Optional[str] = Query(default=None, alias="token")`, and updated `verify_admin_key` to accept both raw tokens and `Bearer <token>` prefixes.
+- **Issue #15**: Root cause identified: `core.py` was previously discarding `prompt_tokens` and `completion_tokens` from provider SDK responses, forcing `pipeline.py` to divide synthesis tokens by 2. Refactored `core.py` to return full token usage breakdown, updated `pipeline.py` and `app.py` to log exact input/output counts, eliminated all leftover 50/50 division heuristics in fallback paths, and guaranteed Guardian blocked queries record exact token usage and cost.
+- **Issue #16**: Root cause identified: Background thread unhandled exceptions terminated silently without updating `evaluation_runs`. Added exception handling that marks `status = 'failed'` with error details in Supabase, and updated frontend `EvaluationsTab.tsx` polling to stop and notify.
+- **Issue #17**: Verified that `POST /settings` in `backend/app.py` had no admin key check. Added `_require_admin(authorization)` enforcement supporting both Bearer and raw admin keys.
+- **Issue #18**: Updated default URLs in `tests/deepeval_suite.py` and `cli_admin.py` to `https://acaicia-backend-production.up.railway.app`.
+
 ---
 
 ## Phase 1 — Immediate Wins & Strategic Calibration (P1)
 
 High ROI, moderate effort. Delivers visible UX improvements, cost transparency, and retrieval gains.
 
-| # | Issue | Effort | Metric |
-|---|---|---|---|
-| 1 | [Streaming responses + replace file polling (SSE)](https://github.com/BongweKE/acAIcia/issues/1) | M (5–8d) | Time-to-first-token < 2.0s; eliminates polling |
-| 20 | [Cost Model Refinements: Cache Progression, Multi-Replica Overages, Mistral Seat](https://github.com/BongweKE/acAIcia/issues/20) | S (1d) | Accurate multi-replica budget & cache savings curve |
-| 3 | [Cross-encoder reranker for hybrid retrieval](https://github.com/BongweKE/acAIcia/issues/3) | S (2–3d) | hit@1 +5pp on test questions |
-| 2 | [Unified LLM gateway via LiteLLM with provider fallback](https://github.com/BongweKE/acAIcia/issues/2) | M (3–5d) | Zero downtime on Mistral 429/503; automatic fallback to Gemini/DeepSeek |
+| # | Issue | Effort | Metric | Status |
+|---|---|---|---|---|
+| 20 | [Cost Model Refinements: Cache Progression, Multi-Replica Overages, Mistral Seat](https://github.com/BongweKE/acAIcia/issues/20) | S (1d) | Accurate multi-replica budget & cache savings curve | In Progress / Implemented |
+| 1 | [Streaming responses + replace file polling (SSE)](https://github.com/BongweKE/acAIcia/issues/1) | M (3–5d) | Time-to-first-token < 2.0s; eliminates polling | In Progress / Implemented |
+| 3 | [Cross-encoder reranker for hybrid retrieval](https://github.com/BongweKE/acAIcia/issues/3) | S (2–3d) | hit@1 +5pp on test questions | Planned |
+| 2 | [Unified LLM gateway via LiteLLM with provider fallback](https://github.com/BongweKE/acAIcia/issues/2) | M (3–5d) | Zero downtime on Mistral 429/503; automatic fallback to Gemini/DeepSeek | Planned |
 
 **Phase 1 success criteria**:
 - Frontend streams tokens with stage indicators (Guardian → Architect → Retrieving → Synthesizing).
@@ -69,6 +77,10 @@ High ROI, moderate effort. Delivers visible UX improvements, cost transparency, 
 2. **#1** (Streaming Responses via SSE) — Highest-ROI user-facing improvement; drops perceived TTFT from ~25s to <2s.
 3. **#3** (Cross-Encoder Reranker) — Low effort (2–3d) retrieval precision boost (+5pp hit@1) directly on top of hybrid retrieval.
 4. **#2** (LiteLLM Unified Gateway) — Standardizes multi-provider LLM calling and enables automated failover on 429/503 errors.
+
+### Phase 1 Progress & Findings
+- **Issue #20**: Updated `docs/cost_model.md §4` with explicit replica scaling overheads ($20 base + $15/replica/mo), cache progression curve (10% launch → 20% at 100 users → 30% at 500 users), and cost-benefit trade-off of Mistral Team seat ($24.99/mo) vs pay-as-you-go developer tier.
+- **Issue #1**: Implemented Server-Sent Events (SSE) via `POST /query/stream` in `backend/server.py` and generator pipeline in `backend/pipeline.py`. Added client-side reader in `frontend/src/api/client.ts` and dynamic real-time token rendering in `frontend/src/context/ChatContext.tsx`, preserving seamless polling fallback. Hardened with immediate `query_id` propagation for session resumption, `url_link` and `rrf_score` extraction, strict `[Author(s), Year]` inline citation formatting matching `run_rag_query`, and a `finally:` block ensuring telemetry and token costs are logged even under sudden client aborts or network disconnects.
 
 ---
 

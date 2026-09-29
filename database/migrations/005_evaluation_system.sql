@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS evaluation_details (
 CREATE INDEX IF NOT EXISTS idx_eval_details_run ON evaluation_details (run_id);
 CREATE INDEX IF NOT EXISTS idx_eval_details_type ON evaluation_details (question_type);
 
+-- ADR 0010: Enable RLS (deny-by-default for anon/authenticated roles)
+ALTER TABLE evaluation_details ENABLE ROW LEVEL SECURITY;
+
 -- C. Canary Questions Registry
 CREATE TABLE IF NOT EXISTS canary_questions (
   canary_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -72,6 +75,10 @@ CREATE TABLE IF NOT EXISTS canary_questions (
   is_active         BOOLEAN DEFAULT TRUE,
   created_at        TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- ADR 0010: Enable RLS (deny-by-default for anon/authenticated roles)
+ALTER TABLE canary_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evaluation_runs ENABLE ROW LEVEL SECURITY;
 
 -- Seed initial canary questions (answers verifiably absent from KB)
 INSERT INTO canary_questions (question_text, topic_category, expected_behavior) VALUES
@@ -86,7 +93,7 @@ INSERT INTO canary_questions (question_text, topic_category, expected_behavior) 
 ON CONFLICT DO NOTHING;
 
 -- D. Evaluation score trend view (for dashboard charts)
-CREATE OR REPLACE VIEW evaluation_score_trends AS
+CREATE OR REPLACE VIEW evaluation_score_trends WITH (security_invoker = true) AS
   SELECT
     er.run_id,
     er.timestamp,

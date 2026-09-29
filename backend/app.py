@@ -4,7 +4,7 @@ import time
 import random
 import threading
 from typing import Optional, List
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Header
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Header, Query
 from pydantic import BaseModel
 import modal
 
@@ -138,17 +138,28 @@ def estimate_query_cost(input_tokens: int, output_tokens: int, provider: str) ->
 # Set ADMIN_API_KEY in Modal secrets (acaicia-llm-secrets). See docs/deployment_guide.md.
 # ─────────────────────────────────────────────────────────────────────────────
 def verify_admin_key(authorization: Optional[str]) -> bool:
-    """Returns True if bearer token matches ADMIN_API_KEY env var."""
+    """Returns True if token matches ADMIN_API_KEY env var (open if unset).
+    Supports both 'Bearer <key>' format and raw '<key>'.
+    """
     admin_key = os.environ.get("ADMIN_API_KEY")
     if not admin_key:
         # If key not configured, allow access (backward compat during transition)
         return True
     if not authorization:
         return False
-    parts = authorization.split(" ")
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        return False
-    return parts[1] == admin_key
+    clean = authorization.strip()
+    parts = clean.split(" ", 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1] == admin_key
+    return clean == admin_key
+
+
+def _require_admin(authorization: Optional[str] = None):
+    if not verify_admin_key(authorization):
+        raise HTTPException(
+            status_code=401,
+            detail="Admin API key required. Set Authorization: Bearer <ADMIN_API_KEY>.",
+        )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Request & Response Models for FastAPI
@@ -637,8 +648,15 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
                     raise mistral_err
 
             text = res.choices[0].message.content or ""
-            tokens = res.usage.total_tokens if res.usage else 0
-            return {"text": text.strip(), "tokens": tokens}
+            prompt_tokens = res.usage.prompt_tokens if res.usage else 0
+            completion_tokens = res.usage.completion_tokens if res.usage else 0
+            tokens = res.usage.total_tokens if res.usage else (prompt_tokens + completion_tokens)
+            return {
+                "text": text.strip(),
+                "tokens": tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+            }
         else: # gemini
             if not ai_client:
                 raise RuntimeError("GOOGLE_API_KEY is not configured.")
@@ -651,8 +669,16 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
             res = ai_client.models.generate_content(model="gemini-2.5-flash", contents=contents)
             if not res or not hasattr(res, "text") or not res.text:
                 raise RuntimeError("Gemini API returned an empty or invalid response.")
-            tokens = res.usage_metadata.total_token_count if hasattr(res, 'usage_metadata') and res.usage_metadata else 0
-            return {"text": res.text.strip(), "tokens": tokens}
+            meta = getattr(res, "usage_metadata", None)
+            prompt_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
+            completion_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+            tokens = getattr(meta, "total_token_count", prompt_tokens + completion_tokens) if meta else 0
+            return {
+                "text": res.text.strip(),
+                "tokens": tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+            }
 
     try:
         update_status({"status": "processing", "stage": "Guardian Check", "query_id": query_id})
@@ -709,7 +735,16 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
 
             if 'FAIL' in guard_text.upper():
                 telemetry["latency_ms"] = int((time.time() - start_time) * 1000)
-                telemetry["total_tokens_used"] = total_tokens
+                guard_in = guard_res.get("prompt_tokens", 0)
+                guard_out = guard_res.get("completion_tokens", 0)
+                active_provider = get_active_provider(logger)
+                telemetry["input_tokens"] = guard_in
+                telemetry["output_tokens"] = guard_out
+                telemetry["total_tokens_used"] = guard_in + guard_out if (guard_in or guard_out) else total_tokens
+                telemetry["provider_used"] = active_provider
+                telemetry["estimated_cost_usd"] = estimate_query_cost(
+                    guard_in, guard_out, active_provider
+                )
                 try:
                     supabase.table("query_interaction_logs").insert(telemetry).execute()
                 except Exception:
@@ -845,14 +880,27 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
 
         # ── Cost attribution & query type tagging ──────────────────────────────
         active_provider = get_active_provider(logger)
-        # Rough input/output split: guardian+architect+retrieval context = input, synthesis answer = output
-        estimated_input  = max(0, total_tokens - synth_res.get("tokens", 0) // 2)
-        estimated_output = synth_res.get("tokens", 0) // 2
-        telemetry["input_tokens"]        = estimated_input
-        telemetry["output_tokens"]       = estimated_output
+        total_input_tokens = (
+            guard_res.get("prompt_tokens", 0)
+            + arch_res.get("prompt_tokens", 0)
+            + synth_res.get("prompt_tokens", 0)
+        )
+        total_output_tokens = (
+            guard_res.get("completion_tokens", 0)
+            + arch_res.get("completion_tokens", 0)
+            + synth_res.get("completion_tokens", 0)
+        )
+        if total_input_tokens == 0 and total_output_tokens == 0:
+            total_input_tokens = len(user_query) // 4 + len(synthesis_prompt) // 4
+            total_output_tokens = len(synth_text) // 4
+        total_tokens = total_input_tokens + total_output_tokens
+
+        telemetry["input_tokens"]        = total_input_tokens
+
+        telemetry["output_tokens"]       = total_output_tokens
         telemetry["total_tokens_used"]   = total_tokens
         telemetry["provider_used"]       = active_provider
-        telemetry["estimated_cost_usd"]  = estimate_query_cost(estimated_input, estimated_output, active_provider)
+        telemetry["estimated_cost_usd"]  = estimate_query_cost(total_input_tokens, total_output_tokens, active_provider)
         telemetry["query_type"]          = telemetry.get("synthesis_source", "unknown")
         telemetry["latency_ms"]          = int((time.time() - start_time) * 1000)
 
@@ -1340,7 +1388,11 @@ def fastapi_app_entrypoint():
         )
 
     @fastapi_app.post("/settings", response_model=SettingsResponse)
-    def update_settings(request: SettingsRequest):
+    def update_settings(
+        request: SettingsRequest,
+        authorization: Optional[str] = Header(default=None),
+    ):
+        _require_admin(authorization)
         if request.llm_provider not in ["gemini", "nvidia", "modal", "deepseek", "mistral"]:
             raise HTTPException(status_code=400, detail="Invalid LLM provider.")
         try:
@@ -1920,8 +1972,11 @@ def fastapi_app_entrypoint():
     def export_query_logs_csv(
         start_date: Optional[str] = None, end_date: Optional[str] = None,
         authorization: Optional[str] = Header(default=None),
+        auth_token: Optional[str] = Query(default=None, alias="authorization"),
+        token_param: Optional[str] = Query(default=None, alias="token"),
     ):
-        _require_admin(authorization)
+        token = authorization or auth_token or token_param
+        _require_admin(token)
         try:
             import csv, io
             from fastapi.responses import StreamingResponse

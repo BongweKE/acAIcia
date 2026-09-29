@@ -288,6 +288,18 @@ export interface QueryStatusResponse {
   stage?: string;
 }
 
+export interface StreamEvent {
+  type: 'stage' | 'sources' | 'token' | 'done' | 'error';
+  stage?: string;
+  sources?: SourceChunk[];
+  text?: string;
+  query_id?: string;
+  cache_hit?: boolean;
+  guardian_passed?: boolean;
+  error?: string;
+  telemetry?: Record<string, any>;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';

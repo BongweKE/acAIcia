@@ -125,9 +125,14 @@ export const EvaluationsTab: React.FC<Props> = ({ metrics }) => {
           if (currentRun && currentStatus && currentStatus !== 'running') {
             setIsRunning(false);
             setRunningRunId(null);
-            setToastMessage('Evaluation completed!');
+            if (currentStatus === 'failed') {
+              const errMsg = currentRun.details?.error || 'Evaluation job failed.';
+              setToastMessage(`Evaluation failed: ${errMsg}`);
+            } else {
+              setToastMessage('Evaluation completed!');
+            }
             clearInterval(interval);
-            setTimeout(() => setToastMessage(''), 3000);
+            setTimeout(() => setToastMessage(''), 4000);
             fetchData();
           }
         } catch (e) {}

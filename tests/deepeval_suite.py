@@ -49,7 +49,7 @@ BACKEND_TIMEOUT = 90            # seconds to wait for backend response
 
 ACAICIA_BACKEND_URL = os.environ.get(
     "ACAICIA_BACKEND_URL",
-    "https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run"
+    "https://acaicia-backend-production.up.railway.app"
 )
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY")
 

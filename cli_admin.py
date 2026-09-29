@@ -182,15 +182,20 @@ def deploy_frontend():
 def get_backend_url():
     if os.environ.get("BACKEND_URL"):
         return os.environ.get("BACKEND_URL")
+    if os.environ.get("ACAICIA_BACKEND_URL"):
+        return os.environ.get("ACAICIA_BACKEND_URL")
     base_dir = os.path.dirname(os.path.abspath(__file__))
     client_ts_path = os.path.join(base_dir, "frontend", "src", "api", "client.ts")
     if os.path.exists(client_ts_path):
         with open(client_ts_path, "r") as f:
             content = f.read()
-            m = re.search(r"['\"](https://[^'\"]+modal\.run)['\"]", content)
+            m = re.search(r"['\"](https://[^'\"]+railway\.app)['\"]", content)
             if m:
                 return m.group(1)
-    return "https://ciforicraf-ai--acaicia-backend-fastapi-app-entrypoint.modal.run"
+            m_modal = re.search(r"['\"](https://[^'\"]+modal\.run)['\"]", content)
+            if m_modal:
+                return m_modal.group(1)
+    return "https://acaicia-backend-production.up.railway.app"
 
 def check_status(env_path):
     print_header("Check Remote Backend & Credentials Status")

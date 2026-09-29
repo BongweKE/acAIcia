@@ -8,6 +8,7 @@ import type {
   AdminMetricsResponse,
   QueryRequest,
   QueryStatusResponse,
+  StreamEvent,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://acaicia-backend-production.up.railway.app';
@@ -96,6 +97,72 @@ export async function submitQuery(payload: QueryRequest): Promise<{ query_id: st
     body: JSON.stringify(payload),
   });
   return handleResponse<{ query_id: string; status: string }>(res, 'Failed to submit query');
+}
+
+export async function streamQuery(
+  payload: QueryRequest,
+  onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/query/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  if (!res.ok) {
+    let errorDetail = res.statusText;
+    try {
+      const errJson = await res.json();
+      if (errJson.detail) {
+        errorDetail = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
+      }
+    } catch {}
+    throw new Error(`Failed to initiate stream: ${errorDetail} (${res.status})`);
+  }
+
+  if (!res.body) {
+    throw new Error('ReadableStream not supported by browser environment.');
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith(':')) continue;
+      if (trimmed.startsWith('data:')) {
+        const jsonStr = trimmed.slice(5).trim();
+        if (jsonStr) {
+          try {
+            const parsed = JSON.parse(jsonStr) as StreamEvent;
+            onEvent(parsed);
+          } catch (e) {
+            console.warn('Failed to parse SSE event:', jsonStr, e);
+          }
+        }
+      }
+    }
+  }
+
+  if (buffer.trim().startsWith('data:')) {
+    const jsonStr = buffer.trim().slice(5).trim();
+    if (jsonStr) {
+      try {
+        const parsed = JSON.parse(jsonStr) as StreamEvent;
+        onEvent(parsed);
+      } catch (e) {}
+    }
+  }
 }
 
 export async function getQueryStatus(queryId: string): Promise<QueryStatusResponse> {

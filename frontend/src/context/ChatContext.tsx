@@ -393,56 +393,168 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .slice(-6)
       .map((m) => ({ role: m.role, content: m.content }));
 
+    const queryPayload = {
+      query: trimmed,
+      session_id: targetSessionId,
+      user_id: user?.email || undefined,
+      guest_session_id: guestSessionId,
+      conversation_history: history,
+    };
+
+    let streamStarted = false;
+
     try {
-      const res = await client.submitQuery({
-        query: trimmed,
-        session_id: targetSessionId,
-        user_id: user?.email || undefined,
-        guest_session_id: guestSessionId,
-        conversation_history: history,
+      await client.streamQuery(queryPayload, (event) => {
+        streamStarted = true;
+        if (event.query_id) {
+          setCurrentQueryId(event.query_id);
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id !== targetSessionId) return s;
+              return {
+                ...s,
+                messages: s.messages.map((msg) =>
+                  msg.id === assistantMsgId ? { ...msg, queryId: event.query_id } : msg
+                ),
+              };
+            })
+          );
+        }
+        if (event.type === 'stage' && event.stage) {
+          const stageMap: Record<string, RAGStage> = {
+            'Guardian Check': 'Guardian Check',
+            'guardian': 'Guardian Check',
+            'Query Architect': 'Query Architect',
+            'architect': 'Query Architect',
+            'Hybrid Retrieval': 'Hybrid Retrieval',
+            'retrieving': 'Hybrid Retrieval',
+            'Synthesis Engine': 'Synthesis Engine',
+            'synthesizing': 'Synthesis Engine',
+          };
+          if (stageMap[event.stage]) {
+            setCurrentStage(stageMap[event.stage]);
+          }
+        } else if (event.type === 'sources' && event.sources) {
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id !== targetSessionId) return s;
+              return {
+                ...s,
+                messages: s.messages.map((msg) =>
+                  msg.id === assistantMsgId ? { ...msg, sources: event.sources } : msg
+                ),
+              };
+            })
+          );
+        } else if (event.type === 'token' && event.text) {
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id !== targetSessionId) return s;
+              return {
+                ...s,
+                messages: s.messages.map((msg) =>
+                  msg.id === assistantMsgId ? { ...msg, content: (msg.content || '') + event.text } : msg
+                ),
+              };
+            })
+          );
+        } else if (event.type === 'done') {
+          if (event.query_id) setCurrentQueryId(event.query_id);
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id !== targetSessionId) return s;
+              return {
+                ...s,
+                updatedAt: new Date().toISOString(),
+                messages: s.messages.map((msg) =>
+                  msg.id === assistantMsgId
+                    ? {
+                        ...msg,
+                        status: 'completed',
+                        queryId: event.query_id || msg.queryId,
+                        cacheHit: event.cache_hit,
+                      }
+                    : msg
+                ),
+              };
+            })
+          );
+          setIsProcessing(false);
+          setCurrentStage(null);
+        } else if (event.type === 'error') {
+          throw new Error(event.error || 'Server error occurred during streaming.');
+        }
       });
+    } catch (streamErr: any) {
+      // If streaming had already started sending tokens, don't re-query; report stream error
+      if (streamStarted) {
+        console.error('Stream interrupted:', streamErr);
+        const errorMsg = streamErr.message || 'Streaming response interrupted.';
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== targetSessionId) return s;
+            return {
+              ...s,
+              messages: s.messages.map((msg) =>
+                msg.id === assistantMsgId
+                  ? { ...msg, content: (msg.content || '') + `\n\n❌ **Stream Error**: ${errorMsg}`, status: 'failed' }
+                  : msg
+              ),
+            };
+          })
+        );
+        addToast(errorMsg, 'error');
+        setIsProcessing(false);
+        setCurrentStage(null);
+        return;
+      }
 
-      const queryId = res.query_id;
-      setCurrentQueryId(queryId);
+      // If streaming failed to establish connection, fallback smoothly to standard polling
+      console.warn('Streaming connection failed, falling back to polling:', streamErr);
+      try {
+        const res = await client.submitQuery(queryPayload);
+        const queryId = res.query_id;
+        setCurrentQueryId(queryId);
 
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== targetSessionId) return s;
-          return {
-            ...s,
-            messages: s.messages.map((msg) => (msg.id === assistantMsgId ? { ...msg, queryId } : msg)),
-          };
-        })
-      );
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== targetSessionId) return s;
+            return {
+              ...s,
+              messages: s.messages.map((msg) => (msg.id === assistantMsgId ? { ...msg, queryId } : msg)),
+            };
+          })
+        );
 
-      // Start polling status every 1 second
-      pollQueryStatus(queryId, assistantMsgId, targetSessionId);
-    } catch (err: any) {
-      console.error('Failed to submit query:', err);
-      const errorMsg = err.message || 'Failed to submit query to backend server.';
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== targetSessionId) return s;
-          return {
-            ...s,
-            messages: s.messages.map((msg) => {
-              if (msg.id === assistantMsgId) {
-                return {
-                  ...msg,
-                  content: `❌ **Error**: ${errorMsg}`,
-                  status: 'failed',
-                };
-              }
-              return msg;
-            }),
-          };
-        })
-      );
-      addToast(errorMsg, 'error');
-      setIsProcessing(false);
-      setCurrentStage(null);
+        // Start polling status every 1 second
+        pollQueryStatus(queryId, assistantMsgId, targetSessionId);
+      } catch (err: any) {
+        console.error('Failed to submit query fallback:', err);
+        const errorMsg = err.message || 'Failed to submit query to backend server.';
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== targetSessionId) return s;
+            return {
+              ...s,
+              messages: s.messages.map((msg) => {
+                if (msg.id === assistantMsgId) {
+                  return {
+                    ...msg,
+                    content: `❌ **Error**: ${errorMsg}`,
+                    status: 'failed',
+                  };
+                }
+                return msg;
+              }),
+            };
+          })
+        );
+        addToast(errorMsg, 'error');
+        setIsProcessing(false);
+        setCurrentStage(null);
+      }
     }
-  }, [role, guestQueryCount, decrementGuestQueryCount, addToast, user, messages, activeSessionId, pollQueryStatus]);
+  }, [role, guestQueryCount, decrementGuestQueryCount, guestSessionId, addToast, user, messages, activeSessionId, pollQueryStatus]);
 
   const submitFeedback = useCallback(async (logId: string, rating: 1 | -1, correctionText?: string) => {
     try {

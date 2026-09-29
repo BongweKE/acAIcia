@@ -135,26 +135,46 @@ Pro $20/mo + $20 credit (42 replicas, 30-day logs) · memory $10/GB-mo · CPU $2
 
 ## 4. Cost by phase (100 queries/user/month, corrected)
 
+### 4.1 Multi-Replica Compute & Cache Progression Details
+
+Our financial model accounts for two dynamic scaling phenomena:
+1. **Cache-hit progression**: As the research corpus and repeated queries mature, the semantic cache hit rate climbs from **10% at launch** to **20% at 100 users** and **30% at steady-state (500 users)**. At a median cost of $0.0017/query, this progressive compounding generates significant net savings on inference bills.
+2. **Railway multi-replica compute overages**: Railway Pro ($20/mo) includes a $20/month compute credit.
+   - **1 replica (Testing & Phase 1)**: ~1 GB RAM ($10/mo) + frontend ($0.70/mo) = $10.70 compute, completely absorbed by the $20 credit. Railway total = **$20.00/mo**.
+   - **2 replicas (Phase 2 & Phase 3)**: 2 × 1 GB RAM ($20/mo) + frontend ($0.70/mo) + CPU usage ($4/mo) = $24.70 compute ($4.70 overage). Railway total = **$24.70/mo**.
+   - **3 replicas (Phase 4)**: 3 × 1 GB RAM ($30/mo) + frontend ($1.00/mo) + CPU/egress ($14.00/mo) = $45.00 compute ($25.00 overage). Railway total = **$45.00/mo**.
+
 ```mermaid
 xychart-beta
-    title "acAIcia monthly cost by growth phase (core production config)"
+    title "acAIcia monthly cost by growth phase (accounting for multi-replica compute)"
     x-axis ["Testing 10", "Phase 1 50", "Phase 2 100", "Phase 3 200", "Phase 4 500"]
-    y-axis "USD / month" 0 --> 160
-    line "Total" [81.52, 87.22, 93.59, 110.49, 144.49]
+    y-axis "USD / month" 0 --> 180
+    line "Total (with Team Seat)" [81.52, 87.22, 98.29, 115.19, 169.49]
+    line "Total (Pay-As-You-Go API)" [56.53, 62.23, 73.30, 90.20, 144.50]
     line "Mistral inference only" [1.53, 7.23, 13.60, 25.50, 59.50]
 ```
 
-| Phase | Users | Queries/mo | Mistral seat | Mistral inference | Supabase | Railway | **Total** |
-|---|---|---|---|---|---|---|---|
-| Testing | 10 | 1,000 | $24.99 | $1.53 | $35 | $20 | **$81.52** |
-| Phase 1 | 50 | 5,000 | $24.99 | $7.23 | $35 | $20 | **$87.22** |
-| Phase 2 | 100 | 10,000 | $24.99 | $13.60 | $35 | $20 | **$93.59** |
-| Phase 3 | 200 | 20,000 | $24.99 | $25.50 | $40 | $20 | **$110.49** |
-| Phase 4 | 500 | 50,000 | $24.99 | $59.50 | $40 | $20 | **$144.49** |
+| Phase | Users | Queries/mo | Cache Hit % | Net AI Queries | Mistral Inference | Mistral Seat* | Supabase | Railway (Replicas) | **Total (Team)** | **Total (PAYG)** |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Testing** | 10 | 1,000 | 10% | 900 | $1.53 | $24.99 | $35 | $20.00 (1 rep) | **$81.52** | **$56.53** |
+| **Phase 1** | 50 | 5,000 | 15% | 4,250 | $7.23 | $24.99 | $35 | $20.00 (1 rep) | **$87.22** | **$62.23** |
+| **Phase 2** | 100 | 10,000 | 20% | 8,000 | $13.60 | $24.99 | $35 | $24.70 (2 rep) | **$98.29** | **$73.30** |
+| **Phase 3** | 200 | 20,000 | 25% | 15,000 | $25.50 | $24.99 | $40 | $24.70 (2 rep) | **$115.19** | **$90.20** |
+| **Phase 4** | 500 | 50,000 | 30% | 35,000 | $59.50 | $24.99 | $40 | $45.00 (3 rep) | **$169.49** | **$144.50** |
 
-**Hardened option** (+ Supabase PITR $100/mo from Phase 2): P2 $193.59 · P3 $210.49 · P4 $244.49.
+\* *Mistral Team Seat vs Pay-As-You-Go Developer Tier (§4.2 below)*: Pay-As-You-Go eliminates the $24.99/mo fee, saving ~$300/year.
 
-The chart's slope comes almost entirely from AI inference; the fixed fees stay flat.
+**Hardened option** (+ Supabase PITR $100/mo from Phase 2): P2 $198.29 · P3 $215.19 · P4 $269.49.
+
+### 4.2 Comparative Evaluation: Mistral Team Seat vs Pay-As-You-Go Tier
+
+| Feature / Attribute | Mistral Pay-As-You-Go ($0/mo) | Mistral Team Seat ($24.99/mo) | Strategic Recommendation |
+|---|---|---|---|
+| **API Inference Pricing** | Identical ($0.15/M in, $0.60/M out) | Identical ($0.15/M in, $0.60/M out) | Parity |
+| **Model & Tool Availability** | All models (Small, Ministral, Embed) | All models (Small, Ministral, Embed) | Parity |
+| **Workspace RBAC** | Single account / API key owner | Multi-user roles (Admin, Member) | Beneficial only for multi-dev teams |
+| **Key Scoping & Audit** | Single global API key | Granular per-service keys + usage audit | Useful at enterprise scale (Phase 3+) |
+| **Annual Cost Impact** | **$0/year** baseline | **$299.88/year** | **Recommendation: Start on Pay-As-You-Go during Testing & Phase 1; upgrade to Team Seat in Phase 2 or 3 when multiple institutional admins require role delegation.** |
 
 ---
 

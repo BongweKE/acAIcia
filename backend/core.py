@@ -196,16 +196,20 @@ def estimate_query_cost(input_tokens: int, output_tokens: int, provider: str) ->
 # Admin API key auth guard
 # ─────────────────────────────────────────────────────────────────────────────
 def verify_admin_key(authorization: Optional[str]) -> bool:
-    """Returns True if the bearer token matches ADMIN_API_KEY (open if unset)."""
+    """Returns True if the token matches ADMIN_API_KEY (open if unset).
+    Supports both 'Bearer <key>' format and raw '<key>'.
+    """
     admin_key = os.environ.get("ADMIN_API_KEY")
     if not admin_key:
         return True
     if not authorization:
         return False
-    parts = authorization.split(" ")
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        return False
-    return parts[1] == admin_key
+    clean = authorization.strip()
+    parts = clean.split(" ", 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1] == admin_key
+    return clean == admin_key
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -349,8 +353,15 @@ def build_llm_caller(
                 else:
                     raise
             text = res.choices[0].message.content or ""
-            tokens = res.usage.total_tokens if res.usage else 0
-            return {"text": text.strip(), "tokens": tokens}
+            prompt_tokens = res.usage.prompt_tokens if res.usage else 0
+            completion_tokens = res.usage.completion_tokens if res.usage else 0
+            tokens = res.usage.total_tokens if res.usage else (prompt_tokens + completion_tokens)
+            return {
+                "text": text.strip(),
+                "tokens": tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+            }
 
         if provider == "modal":
             if gemma_call is None:
@@ -368,7 +379,14 @@ def build_llm_caller(
                 max_tokens=max_tokens,
                 conversation_history=history,
             )
-            return {"text": text.strip(), "tokens": len(prompt) // 4 + len(text) // 4}
+            prompt_tokens = len(prompt) // 4
+            completion_tokens = len(text) // 4
+            return {
+                "text": text.strip(),
+                "tokens": prompt_tokens + completion_tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+            }
 
         if provider == "nvidia":
             import requests
@@ -404,9 +422,15 @@ def build_llm_caller(
             data = res.json()
             if "choices" not in data or not data["choices"]:
                 raise RuntimeError(f"NVIDIA API response missing choices: {data}")
+            usage = data.get("usage", {})
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
             return {
                 "text": data["choices"][0]["message"]["content"],
-                "tokens": data.get("usage", {}).get("total_tokens", 0),
+                "tokens": tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
             }
 
         if provider == "deepseek":
@@ -443,9 +467,15 @@ def build_llm_caller(
             data = res.json()
             if "choices" not in data or not data["choices"]:
                 raise RuntimeError(f"DeepSeek API response missing choices: {data}")
+            usage = data.get("usage", {})
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
             return {
                 "text": data["choices"][0]["message"]["content"],
-                "tokens": data.get("usage", {}).get("total_tokens", 0),
+                "tokens": tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
             }
 
         # gemini
@@ -466,11 +496,124 @@ def build_llm_caller(
         )
         if not res or not getattr(res, "text", None):
             raise RuntimeError("Gemini API returned an empty or invalid response.")
-        tokens = (
-            res.usage_metadata.total_token_count
-            if getattr(res, "usage_metadata", None)
-            else 0
-        )
-        return {"text": res.text.strip(), "tokens": tokens}
+        meta = getattr(res, "usage_metadata", None)
+        prompt_tokens = getattr(meta, "prompt_token_count", 0) if meta else 0
+        completion_tokens = getattr(meta, "candidates_token_count", 0) if meta else 0
+        tokens = getattr(meta, "total_token_count", prompt_tokens + completion_tokens) if meta else 0
+        return {
+            "text": res.text.strip(),
+            "tokens": tokens,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+        }
 
     return call_llm
+
+
+def build_llm_stream_caller(
+    provider_getter: Callable[[], str],
+    logger=None,
+):
+    """Build a ``call_llm_stream(prompt, agent_type, conversation_history=None, usage_collector=None)`` generator.
+
+    Yields string text chunks as they arrive from the LLM stream.
+    If ``usage_collector`` dict is provided, records exact token counts
+    {"prompt_tokens": ..., "completion_tokens": ..., "total_tokens": ...}.
+    """
+    mistral_client = None
+    mistral_lock = threading.Lock()
+
+    def _client():
+        nonlocal mistral_client
+        if mistral_client is None:
+            with mistral_lock:
+                if mistral_client is None:
+                    mistral_client = get_mistral_client()
+        return mistral_client
+
+    def call_llm_stream(
+        prompt: str,
+        agent_type: str,
+        conversation_history: Optional[list] = None,
+        usage_collector: Optional[dict] = None,
+    ):
+        provider = provider_getter()
+
+        if provider == "mistral":
+            client = _client()
+            model = MISTRAL_SYNTHESIS_MODEL
+            messages = []
+            if conversation_history and agent_type == "synthesis":
+                messages.extend(conversation_history)
+            messages.append({"role": "user", "content": prompt})
+
+            try:
+                stream_res = client.chat.stream(
+                    model=model,
+                    messages=messages,
+                    max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
+                    temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                )
+            except Exception as mistral_err:
+                err_str = str(mistral_err).lower()
+                if (
+                    "429" in err_str
+                    or "rate_limited" in err_str
+                    or "invalid" in err_str
+                ):
+                    fallback = (
+                        MISTRAL_FALLBACK_GUARDIAN_MODEL
+                        if agent_type == "guardian"
+                        else MISTRAL_FALLBACK_SYNTHESIS_MODEL
+                    )
+                    stream_res = client.chat.stream(
+                        model=fallback,
+                        messages=messages,
+                        max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
+                        temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                    )
+                else:
+                    raise
+
+            full_chunks = []
+            for chunk in stream_res:
+                content = ""
+                if chunk.data and chunk.data.choices:
+                    content = chunk.data.choices[0].delta.content or ""
+                if content:
+                    full_chunks.append(content)
+                    yield content
+                if chunk.data and getattr(chunk.data, "usage", None):
+                    u = chunk.data.usage
+                    p_tok = getattr(u, "prompt_tokens", 0) or 0
+                    c_tok = getattr(u, "completion_tokens", 0) or 0
+                    t_tok = getattr(u, "total_tokens", 0) or (p_tok + c_tok)
+                    if usage_collector is not None:
+                        usage_collector["prompt_tokens"] = p_tok
+                        usage_collector["completion_tokens"] = c_tok
+                        usage_collector["total_tokens"] = t_tok
+
+            if usage_collector is not None and "total_tokens" not in usage_collector:
+                full_text = "".join(full_chunks)
+                out_tok = len(full_text) // 4
+                in_tok = len(prompt) // 4
+                usage_collector["prompt_tokens"] = in_tok
+                usage_collector["completion_tokens"] = out_tok
+                usage_collector["total_tokens"] = in_tok + out_tok
+            return
+
+        # Fallback for non-streaming providers: execute synchronous call_llm and yield
+        caller = build_llm_caller(provider_getter, logger)
+        res = caller(prompt, agent_type, conversation_history)
+        if usage_collector is not None:
+            usage_collector["prompt_tokens"] = res.get("prompt_tokens", 0)
+            usage_collector["completion_tokens"] = res.get("completion_tokens", 0)
+            usage_collector["total_tokens"] = res.get("tokens", 0)
+        text = res.get("text", "")
+        # Yield word chunks for graceful streaming appearance
+        words = text.split(" ")
+        for i, word in enumerate(words):
+            yield word + (" " if i < len(words) - 1 else "")
+
+    return call_llm_stream
+
