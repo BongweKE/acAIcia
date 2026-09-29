@@ -8,6 +8,11 @@
 -- ============================================================================
 
 -- 1. Parameter disambiguation for match_semantic_cache_pgvector
+-- Explicitly drop the previous function if it exists with old parameter names (Postgres forbids renaming parameters in CREATE OR REPLACE)
+DROP FUNCTION IF EXISTS public.match_semantic_cache_pgvector(vector, float, text);
+DROP FUNCTION IF EXISTS public.match_semantic_cache_pgvector(vector(768), float, text);
+DROP FUNCTION IF EXISTS public.match_semantic_cache_pgvector;
+
 CREATE OR REPLACE FUNCTION public.match_semantic_cache_pgvector (
   p_query_embedding vector(768),
   p_match_threshold float default 0.95,
@@ -44,15 +49,15 @@ DELETE FROM public.canary_questions
 WHERE canary_id NOT IN (
   SELECT DISTINCT ON (question_text) canary_id
   FROM public.canary_questions
-  ORDER BY question_text, created_at ASC
+  ORDER BY question_text, created_at ASC, canary_id ASC
 );
 
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
-    WHERE conname = 'canary_questions_question_text_key'
-       OR conname = 'uq_canary_questions_question_text'
+    WHERE conrelid = 'public.canary_questions'::regclass
+      AND conname IN ('canary_questions_question_text_key', 'uq_canary_questions_question_text')
   ) THEN
     ALTER TABLE public.canary_questions
       ADD CONSTRAINT canary_questions_question_text_key UNIQUE (question_text);

@@ -11,7 +11,7 @@ During implementation and hardening of Phase 1 and 2 capabilities (native pgvect
 
 ## Decision
 We deploy migration `011_fix_pgvector_cache_and_evaluation_system.sql` (and align migration `010`):
-1. **Prefix RPC Parameters with `p_`**: Re-declare `match_semantic_cache_pgvector` with `(p_query_embedding, p_match_threshold, p_filter_topic)` and update both batch and streaming pipeline call sites in `backend/pipeline.py`.
+1. **Prefix RPC Parameters with `p_` & Explicit DROP**: Because PostgreSQL's `CREATE OR REPLACE FUNCTION` strictly forbids changing the names of input parameters on an existing function (raising error `42P13`), we explicitly issue `DROP FUNCTION IF EXISTS public.match_semantic_cache_pgvector;` before re-declaring `match_semantic_cache_pgvector` with `(p_query_embedding, p_match_threshold, p_filter_topic)`. Both batch and streaming pipeline call sites in `backend/pipeline.py` are aligned to pass `p_` prefixed kwargs.
 2. **Deduplicate Canary Questions & Enforce Uniqueness**: Delete duplicate rows from `canary_questions` preserving the earliest record (`ctid` / `created_at`), and enforce `ALTER TABLE canary_questions ADD CONSTRAINT canary_questions_question_text_key UNIQUE (question_text)`.
 3. **Correct Aggregations in `evaluation_score_trends`**: Replace `COUNT(*)` with `COUNT(ed.detail_id)` in the view definition and denominator calculations (`NULLIF(COUNT(ed.detail_id), 0)`), ensuring runs with zero details accurately report 0 details and NULL hit rates. Retain `security_invoker = true`.
 
