@@ -224,8 +224,18 @@ class TestSprint0AndStreaming(unittest.TestCase):
                 "ADMIN_API_KEY": "test_admin_secret_key_12345",
             },
         ):
-            raw_app_fn = legacy_app.fastapi_app_entrypoint.get_raw_f()
-            client = TestClient(raw_app_fn())
+            if hasattr(legacy_app.fastapi_app_entrypoint, "get_raw_f"):
+                raw_app_fn = legacy_app.fastapi_app_entrypoint.get_raw_f()
+            elif hasattr(legacy_app.fastapi_app_entrypoint, "_raw_f"):
+                raw_app_fn = legacy_app.fastapi_app_entrypoint._raw_f
+            elif hasattr(legacy_app.fastapi_app_entrypoint, "spec") and hasattr(legacy_app.fastapi_app_entrypoint.spec, "raw_f"):
+                raw_app_fn = legacy_app.fastapi_app_entrypoint.spec.raw_f
+            elif hasattr(legacy_app.fastapi_app_entrypoint, "local"):
+                raw_app_fn = legacy_app.fastapi_app_entrypoint.local
+            else:
+                raw_app_fn = legacy_app.fastapi_app_entrypoint
+            app_instance = raw_app_fn()
+            client = TestClient(app_instance)
 
         # Without admin key -> 401
         res_unauth = client.post("/settings", json={"llm_provider": "gemini"})
