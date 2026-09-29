@@ -1,0 +1,46 @@
+name: Main Branch Guard
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: main-guard-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Verify commit arrived via pull request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check commit ↔ PR association
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          prs="$(gh api "repos/$REPO/commits/$SHA/pulls" --jq 'length' 2>/tmp/gh.err || echo "")"
+          if [ -z "$prs" ] || [ "$prs" = "0" ]; then
+            sleep 2
+            prs="$(gh api "repos/$REPO/commits/$SHA/pulls" --jq 'length' 2>/dev/null || echo "0")"
+          fi
+          if [ "${prs:-0}" = "0" ]; then
+            echo "violation=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Direct push to protected branch detected: $SHA did not arrive via a pull request."
+          else
+            echo "violation=false" >> "$GITHUB_OUTPUT"
+            echo "OK: $SHA is associated with $prs pull request(s)."
+          fi
+
+      - name: Fail the run
+        if: steps.check.outputs.violation == 'true'
+        run: |
+          echo "::error::Protected branches must only be updated via merged pull requests."
+          exit 1

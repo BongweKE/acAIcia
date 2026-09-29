@@ -19,6 +19,65 @@ from .core import classify_query_topic, estimate_query_cost
 
 log = logging.getLogger("acaicia-pipeline")
 
+import threading
+
+_cached_reranker = None
+_reranker_lock = threading.Lock()
+
+
+def get_cached_reranker(logger: Optional[logging.Logger] = None):
+    global _cached_reranker
+    with _reranker_lock:
+        if _cached_reranker is not None:
+            return _cached_reranker
+        try:
+            from sentence_transformers import CrossEncoder
+
+            model_name = os.environ.get(
+                "ACAICIA_RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            )
+            if logger:
+                logger.info("Initializing CrossEncoder reranker: %s", model_name)
+            _cached_reranker = CrossEncoder(model_name)
+            return _cached_reranker
+        except Exception as exc:
+            if logger:
+                logger.debug("CrossEncoder reranker unavailable: %s", exc)
+            return None
+
+
+def rerank_chunks(
+    query: str,
+    chunks: list[dict],
+    top_k: int = 5,
+    logger: Optional[logging.Logger] = None,
+) -> tuple[list[dict], bool]:
+    """Rerank retrieved chunks using a Cross-Encoder model.
+
+    Returns (reranked_chunks[:top_k], reranker_applied).
+    """
+    if not chunks:
+        return [], False
+
+    reranker = get_cached_reranker(logger)
+    if reranker is None:
+        return chunks[:top_k], False
+
+    try:
+        pairs = [
+            [query, chunk.get("chunk_text") or chunk.get("content") or ""]
+            for chunk in chunks
+        ]
+        scores = reranker.predict(pairs)
+        for chunk, score in zip(chunks, scores):
+            chunk["rerank_score"] = float(score)
+        ranked = sorted(chunks, key=lambda x: x.get("rerank_score", 0.0), reverse=True)
+        return ranked[:top_k], True
+    except Exception as exc:
+        if logger:
+            logger.debug("Reranking failed (%s); using original order.", exc)
+        return chunks[:top_k], False
+
 
 def run_rag_query(
     *,
@@ -187,53 +246,86 @@ def run_rag_query(
                 np.linalg.norm(user_query_embedding) + 1e-10
             )
             user_topic = telemetry.get("topic_category", "general")
-
-            try:
-                cache_rows = (
-                    supabase.table("semantic_cache")
-                    .select(
-                        "cache_id, query_text, response_text, sources, stored_embedding_text, topic_category"
-                    )
-                    .order("created_at", desc=True)
-                    .limit(200)
-                    .execute()
-                )
-            except Exception:
-                cache_rows = (
-                    supabase.table("semantic_cache")
-                    .select(
-                        "cache_id, query_text, response_text, sources, stored_embedding_text"
-                    )
-                    .order("created_at", desc=True)
-                    .limit(200)
-                    .execute()
-                )
+            user_emb_list = (
+                user_query_embedding.tolist()
+                if hasattr(user_query_embedding, "tolist")
+                else list(user_query_embedding)
+            )
 
             best_sim = -1.0
             best_item = None
-            for row in cache_rows.data or []:
-                stored_topic = row.get("topic_category")
+
+            # 1. Native pgvector RPC lookup (Issue #6)
+            try:
+                rpc_res = supabase.rpc(
+                    "match_semantic_cache_pgvector",
+                    {
+                        "query_embedding": user_emb_list,
+                        "match_threshold": CACHE_SIMILARITY_THRESHOLD,
+                        "filter_topic": None if user_topic == "general" else user_topic,
+                    },
+                ).execute()
                 if (
-                    stored_topic
-                    and stored_topic != "general"
-                    and user_topic != "general"
-                    and stored_topic != user_topic
+                    rpc_res
+                    and isinstance(getattr(rpc_res, "data", None), list)
+                    and len(rpc_res.data) > 0
+                    and isinstance(rpc_res.data[0], dict)
+                    and rpc_res.data[0].get("response_text")
                 ):
-                    continue
-                emb_text = row.get("stored_embedding_text")
-                if not emb_text or not isinstance(emb_text, str):
-                    continue
+                    best_item = rpc_res.data[0]
+                    best_sim = float(best_item.get("similarity", 1.0))
+            except Exception as rpc_err:
+                logger.debug(
+                    "Native pgvector cache RPC failed (%s); falling back to Python scan.",
+                    rpc_err,
+                )
+
+            # 2. Python-side cosine scan fallback
+            if best_item is None:
                 try:
-                    stored_vec = np.fromstring(emb_text, sep=",", dtype=np.float32)
-                    if len(stored_vec) != len(query_emb_norm):
-                        continue
-                    stored_norm = stored_vec / (np.linalg.norm(stored_vec) + 1e-10)
-                    sim = float(np.dot(query_emb_norm, stored_norm))
-                    if sim > best_sim:
-                        best_sim = sim
-                        best_item = row
+                    cache_rows = (
+                        supabase.table("semantic_cache")
+                        .select(
+                            "cache_id, query_text, response_text, sources, stored_embedding_text, topic_category"
+                        )
+                        .order("created_at", desc=True)
+                        .limit(200)
+                        .execute()
+                    )
                 except Exception:
-                    continue
+                    cache_rows = (
+                        supabase.table("semantic_cache")
+                        .select(
+                            "cache_id, query_text, response_text, sources, stored_embedding_text"
+                        )
+                        .order("created_at", desc=True)
+                        .limit(200)
+                        .execute()
+                    )
+
+                for row in cache_rows.data or []:
+                    stored_topic = row.get("topic_category")
+                    if (
+                        stored_topic
+                        and stored_topic != "general"
+                        and user_topic != "general"
+                        and stored_topic != user_topic
+                    ):
+                        continue
+                    emb_text = row.get("stored_embedding_text")
+                    if not emb_text or not isinstance(emb_text, str):
+                        continue
+                    try:
+                        stored_vec = np.fromstring(emb_text, sep=",", dtype=np.float32)
+                        if len(stored_vec) != len(query_emb_norm):
+                            continue
+                        stored_norm = stored_vec / (np.linalg.norm(stored_vec) + 1e-10)
+                        sim = float(np.dot(query_emb_norm, stored_norm))
+                        if sim > best_sim:
+                            best_sim = sim
+                            best_item = row
+                    except Exception:
+                        continue
 
             if best_item is not None and best_sim >= CACHE_SIMILARITY_THRESHOLD:
                 logger.info(
@@ -388,7 +480,7 @@ def run_rag_query(
                 {
                     "query_text": optimized_query,
                     "query_embedding": query_embedding,
-                    "match_count": 5,
+                    "match_count": 8,
                 },
             ).execute()
             results = matches.data if matches.data else []
@@ -400,13 +492,19 @@ def run_rag_query(
                     {
                         "query_embedding": query_embedding,
                         "match_threshold": 0.4,
-                        "match_count": 5,
+                        "match_count": 8,
                     },
                 ).execute()
                 results = matches.data if matches.data else []
                 telemetry["search_mode"] = "vector_fallback"
             except Exception:
                 results = []
+
+        # Cross-Encoder Reranker (Issue #3)
+        results, reranker_applied = rerank_chunks(
+            optimized_query, results, top_k=5, logger=logger
+        )
+        telemetry["reranker_applied"] = reranker_applied
 
         telemetry["retrieval_ms"] = int((time.time() - r_start) * 1000)
         telemetry["retrieved_doc_ids"] = list(
@@ -738,53 +836,86 @@ def run_rag_query_stream(
                     np.linalg.norm(user_query_embedding) + 1e-10
                 )
                 user_topic = telemetry.get("topic_category", "general")
-
-                try:
-                    cache_rows = (
-                        supabase.table("semantic_cache")
-                        .select(
-                            "cache_id, query_text, response_text, sources, stored_embedding_text, topic_category"
-                        )
-                        .order("created_at", desc=True)
-                        .limit(200)
-                        .execute()
-                    )
-                except Exception:
-                    cache_rows = (
-                        supabase.table("semantic_cache")
-                        .select(
-                            "cache_id, query_text, response_text, sources, stored_embedding_text"
-                        )
-                        .order("created_at", desc=True)
-                        .limit(200)
-                        .execute()
-                    )
+                user_emb_list = (
+                    user_query_embedding.tolist()
+                    if hasattr(user_query_embedding, "tolist")
+                    else list(user_query_embedding)
+                )
 
                 best_sim = -1.0
                 best_item = None
-                for row in cache_rows.data or []:
-                    stored_topic = row.get("topic_category")
+
+                # 1. Native pgvector RPC lookup (Issue #6)
+                try:
+                    rpc_res = supabase.rpc(
+                        "match_semantic_cache_pgvector",
+                        {
+                            "query_embedding": user_emb_list,
+                            "match_threshold": CACHE_SIMILARITY_THRESHOLD,
+                            "filter_topic": None if user_topic == "general" else user_topic,
+                        },
+                    ).execute()
                     if (
-                        stored_topic
-                        and stored_topic != "general"
-                        and user_topic != "general"
-                        and stored_topic != user_topic
+                        rpc_res
+                        and isinstance(getattr(rpc_res, "data", None), list)
+                        and len(rpc_res.data) > 0
+                        and isinstance(rpc_res.data[0], dict)
+                        and rpc_res.data[0].get("response_text")
                     ):
-                        continue
-                    emb_text = row.get("stored_embedding_text")
-                    if not emb_text or not isinstance(emb_text, str):
-                        continue
+                        best_item = rpc_res.data[0]
+                        best_sim = float(best_item.get("similarity", 1.0))
+                except Exception as rpc_err:
+                    logger.debug(
+                        "Native pgvector cache RPC failed (%s); falling back to Python scan.",
+                        rpc_err,
+                    )
+
+                # 2. Python-side cosine scan fallback
+                if best_item is None:
                     try:
-                        stored_vec = np.fromstring(emb_text, sep=",", dtype=np.float32)
-                        if len(stored_vec) != len(query_emb_norm):
-                            continue
-                        stored_norm = stored_vec / (np.linalg.norm(stored_vec) + 1e-10)
-                        sim = float(np.dot(query_emb_norm, stored_norm))
-                        if sim > best_sim:
-                            best_sim = sim
-                            best_item = row
+                        cache_rows = (
+                            supabase.table("semantic_cache")
+                            .select(
+                                "cache_id, query_text, response_text, sources, stored_embedding_text, topic_category"
+                            )
+                            .order("created_at", desc=True)
+                            .limit(200)
+                            .execute()
+                        )
                     except Exception:
-                        continue
+                        cache_rows = (
+                            supabase.table("semantic_cache")
+                            .select(
+                                "cache_id, query_text, response_text, sources, stored_embedding_text"
+                            )
+                            .order("created_at", desc=True)
+                            .limit(200)
+                            .execute()
+                        )
+
+                    for row in cache_rows.data or []:
+                        stored_topic = row.get("topic_category")
+                        if (
+                            stored_topic
+                            and stored_topic != "general"
+                            and user_topic != "general"
+                            and stored_topic != user_topic
+                        ):
+                            continue
+                        emb_text = row.get("stored_embedding_text")
+                        if not emb_text or not isinstance(emb_text, str):
+                            continue
+                        try:
+                            stored_vec = np.fromstring(emb_text, sep=",", dtype=np.float32)
+                            if len(stored_vec) != len(query_emb_norm):
+                                continue
+                            stored_norm = stored_vec / (np.linalg.norm(stored_vec) + 1e-10)
+                            sim = float(np.dot(query_emb_norm, stored_norm))
+                            if sim > best_sim:
+                                best_sim = sim
+                                best_item = row
+                        except Exception:
+                            continue
 
                 if best_item is not None and best_sim >= CACHE_SIMILARITY_THRESHOLD:
                     logger.info(
@@ -966,7 +1097,7 @@ def run_rag_query_stream(
                     {
                         "query_text": search_query,
                         "query_embedding": embedding_list,
-                        "match_count": 5,
+                        "match_count": 8,
                         "rrf_k": 60,
                     },
                 ).execute()
@@ -982,7 +1113,7 @@ def run_rag_query_stream(
                         {
                             "query_embedding": embedding_list,
                             "match_threshold": 0.3,
-                            "match_count": 5,
+                            "match_count": 8,
                         },
                     ).execute()
                 )
@@ -992,6 +1123,12 @@ def run_rag_query_stream(
                 logger.error("Dense fallback also failed: %s", dense_err)
                 results = []
                 telemetry["search_mode"] = "failed"
+
+        # Cross-Encoder Reranker (Issue #3)
+        results, reranker_applied = rerank_chunks(
+            search_query, results or [], top_k=5, logger=logger
+        )
+        telemetry["reranker_applied"] = reranker_applied
 
         telemetry["retrieval_ms"] = int((time.time() - r_start) * 1000)
 

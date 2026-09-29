@@ -21,3 +21,6 @@ requests
 
 # Evaluation
 deepeval>=0.21.0    # RAG eval: Faithfulness, AnswerRelevancy, ContextualPrecision, Recall
+litellm
+sentence-transformers
+langfuse

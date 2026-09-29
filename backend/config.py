@@ -21,9 +21,10 @@ COST_PER_1M_TOKENS: dict[str, dict[str, float]] = {
     # 2026-09 against https://mistral.ai/pricing/api/ (was $0.10/$0.30).
     # Guardian uses ministral-3b-latest ($0.10/$0.10), judge ministral-8b ($0.15/$0.15).
     "mistral": {"input": 0.15, "output": 0.60},  # Mistral Small 4 — DEFAULT
+    "litellm": {"input": 0.15, "output": 0.60},  # LiteLLM Unified Gateway (Mistral default)
 }
 
-ALLOWED_PROVIDERS = ["gemini", "nvidia", "modal", "deepseek", "mistral"]
+ALLOWED_PROVIDERS = ["gemini", "nvidia", "modal", "deepseek", "mistral", "litellm"]
 DEFAULT_PROVIDER = "mistral"
 
 # Mistral model identifiers (verified against api.mistral.ai /v1/models).

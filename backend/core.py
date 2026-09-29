@@ -92,6 +92,83 @@ class FileSettingsStore:
         return None
 
 
+class SharedQueryStatusStore:
+    """Multi-replica query status store backed by Supabase query_jobs with local file fallback.
+
+    Allows multiple backend replicas to share query progress and results,
+    preventing 404s when polling hits a different container than submission.
+    """
+
+    def __init__(self, file_store: FileSettingsStore, supabase_client=None):
+        self.file_store = file_store
+        self.supabase = supabase_client
+
+    def read_settings(self) -> dict:
+        return self.file_store.read_settings()
+
+    def write_settings(self, data: dict) -> None:
+        self.file_store.write_settings(data)
+
+    def write_status(self, query_id: str, payload: dict) -> None:
+        self.file_store.write_status(query_id, payload)
+        if self.supabase:
+            try:
+                row = {
+                    "query_id": query_id,
+                    "status": payload.get("status", "processing"),
+                    "stage": payload.get("stage", "Processing RAG Pipeline"),
+                    "updated_at": "now()",
+                }
+                if "original_query" in payload:
+                    row["original_query"] = payload["original_query"]
+                if "response" in payload:
+                    row["response"] = payload["response"]
+                if "sources" in payload:
+                    row["sources"] = payload["sources"]
+                if "error" in payload:
+                    row["error"] = payload["error"]
+                if "cache_hit" in payload:
+                    row["cache_hit"] = payload["cache_hit"]
+
+                self.supabase.table("query_jobs").upsert(row).execute()
+            except Exception as exc:
+                log.debug("Shared store db write failed for %s: %s", query_id, exc)
+
+    def read_status(self, query_id: str) -> Optional[dict]:
+        local_data = self.file_store.read_status(query_id)
+        if local_data and local_data.get("status") in ("completed", "failed"):
+            return local_data
+
+        if self.supabase:
+            try:
+                res = (
+                    self.supabase.table("query_jobs")
+                    .select("*")
+                    .eq("query_id", query_id)
+                    .limit(1)
+                    .execute()
+                )
+                if res.data:
+                    row = res.data[0]
+                    status_payload = {
+                        "query_id": query_id,
+                        "status": row.get("status", "processing"),
+                        "stage": row.get("stage", "Processing RAG Pipeline"),
+                        "cache_hit": row.get("cache_hit", False),
+                    }
+                    if row.get("response"):
+                        status_payload["response"] = row["response"]
+                    if row.get("sources"):
+                        status_payload["sources"] = row["sources"]
+                    if row.get("error"):
+                        status_payload["error"] = row["error"]
+                    return status_payload
+            except Exception as exc:
+                log.debug("Shared store db read failed for %s: %s", query_id, exc)
+
+        return local_data
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Provider resolution
 # ─────────────────────────────────────────────────────────────────────────────
@@ -273,6 +350,64 @@ def mistral_complete(
     return (res.choices[0].message.content or "").strip()
 
 
+
+_langfuse_client = None
+_langfuse_initialized = False
+
+
+def get_langfuse_client(logger=None):
+    global _langfuse_client, _langfuse_initialized
+    if _langfuse_initialized:
+        return _langfuse_client
+    _langfuse_initialized = True
+    public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
+    secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
+    host = os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com")
+    if public_key and secret_key:
+        try:
+            from langfuse import Langfuse
+
+            _langfuse_client = Langfuse(public_key=public_key, secret_key=secret_key, host=host)
+            if logger:
+                logger.info("Langfuse observability initialized (%s)", host)
+        except Exception as exc:
+            if logger:
+                logger.debug("Failed to initialize Langfuse: %s", exc)
+    return _langfuse_client
+
+
+def trace_generation_with_langfuse(
+    name: str,
+    model: str,
+    prompt: str,
+    output: str,
+    tokens: int,
+    input_tokens: int,
+    output_tokens: int,
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    metadata: Optional[dict] = None,
+):
+    client = get_langfuse_client()
+    if not client:
+        return
+    try:
+        trace = client.trace(name=name, session_id=session_id, user_id=user_id, metadata=metadata)
+        trace.generation(
+            name=name,
+            model=model,
+            input=prompt,
+            output=output,
+            usage={
+                "input": input_tokens,
+                "output": output_tokens,
+                "total": tokens,
+            },
+        )
+    except Exception:
+        pass
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Provider-agnostic LLM caller (guardian / architect / synthesis)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -356,6 +491,86 @@ def build_llm_caller(
             prompt_tokens = res.usage.prompt_tokens if res.usage else 0
             completion_tokens = res.usage.completion_tokens if res.usage else 0
             tokens = res.usage.total_tokens if res.usage else (prompt_tokens + completion_tokens)
+            trace_generation_with_langfuse(
+                f"mistral_{agent_type}",
+                model,
+                prompt,
+                text,
+                tokens,
+                prompt_tokens,
+                completion_tokens,
+            )
+            return {
+                "text": text.strip(),
+                "tokens": tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+            }
+
+        if provider == "litellm":
+            try:
+                import litellm
+            except ImportError:
+                raise RuntimeError("litellm package is not installed.")
+
+            api_key = os.environ.get("MISTRAL_API_KEY")
+            model_map = {
+                "guardian": "mistral/ministral-3b-latest",
+                "architect": "mistral/ministral-8b-latest",
+                "synthesis": "mistral/mistral-small-latest",
+            }
+            primary_model = model_map.get(agent_type, "mistral/mistral-small-latest")
+            messages = []
+            if conversation_history and agent_type == "synthesis":
+                messages.extend(conversation_history)
+            messages.append({"role": "user", "content": prompt})
+
+            try:
+                res = litellm.completion(
+                    model=primary_model,
+                    messages=messages,
+                    api_key=api_key,
+                    max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
+                    temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                )
+            except Exception as primary_err:
+                log.warning("LiteLLM primary call failed: %s. Trying backup.", primary_err)
+                if gemma_call is not None:
+                    text = gemma_call(
+                        prompt=prompt,
+                        temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                        max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
+                        conversation_history=conversation_history if agent_type == "synthesis" else None,
+                    )
+                    prompt_tokens = len(prompt) // 4
+                    completion_tokens = len(text) // 4
+                    return {
+                        "text": text.strip(),
+                        "tokens": prompt_tokens + completion_tokens,
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                    }
+                res = litellm.completion(
+                    model="mistral/ministral-8b-latest",
+                    messages=messages,
+                    api_key=api_key,
+                    max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
+                    temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                )
+
+            text = res.choices[0].message.content or ""
+            prompt_tokens = getattr(getattr(res, "usage", None), "prompt_tokens", len(prompt) // 4)
+            completion_tokens = getattr(getattr(res, "usage", None), "completion_tokens", len(text) // 4)
+            tokens = getattr(getattr(res, "usage", None), "total_tokens", prompt_tokens + completion_tokens)
+            trace_generation_with_langfuse(
+                f"litellm_{agent_type}",
+                primary_model,
+                prompt,
+                text,
+                tokens,
+                prompt_tokens,
+                completion_tokens,
+            )
             return {
                 "text": text.strip(),
                 "tokens": tokens,
@@ -539,7 +754,43 @@ def build_llm_stream_caller(
     ):
         provider = provider_getter()
 
-        if provider == "mistral":
+        if provider in ("mistral", "litellm"):
+            if provider == "litellm":
+                try:
+                    import litellm
+
+                    api_key = os.environ.get("MISTRAL_API_KEY")
+                    messages = []
+                    if conversation_history and agent_type == "synthesis":
+                        messages.extend(conversation_history)
+                    messages.append({"role": "user", "content": prompt})
+                    stream_res = litellm.completion(
+                        model="mistral/mistral-small-latest",
+                        messages=messages,
+                        api_key=api_key,
+                        stream=True,
+                        max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
+                        temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                    )
+                    full_chunks = []
+                    for chunk in stream_res:
+                        content = ""
+                        if chunk.choices and chunk.choices[0].delta:
+                            content = chunk.choices[0].delta.content or ""
+                        if content:
+                            full_chunks.append(content)
+                            yield content
+                    if usage_collector is not None:
+                        usage_collector["prompt_tokens"] = len(prompt) // 4
+                        usage_collector["completion_tokens"] = len("".join(full_chunks)) // 4
+                        usage_collector["total_tokens"] = (
+                            usage_collector["prompt_tokens"] + usage_collector["completion_tokens"]
+                        )
+                    return
+                except Exception as litellm_err:
+                    if logger:
+                        logger.warning("LiteLLM stream failed (%s); falling back to direct Mistral.", litellm_err)
+
             client = _client()
             model = MISTRAL_SYNTHESIS_MODEL
             messages = []

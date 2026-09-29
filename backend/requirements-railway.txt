@@ -11,3 +11,5 @@ sentence-transformers
 requests
 google-genai
 deepeval==4.2.2
+litellm
+langfuse

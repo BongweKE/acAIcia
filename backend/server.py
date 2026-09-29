@@ -31,6 +31,7 @@ from .config import (
 )
 from .core import (
     FileSettingsStore,
+    SharedQueryStatusStore,
     build_llm_caller,
     build_llm_stream_caller,
     get_cached_embed_model,
@@ -62,7 +63,6 @@ except Exception:
 DATA_DIR = os.environ.get("ACAICIA_DATA_DIR", "/data")
 if not os.access(DATA_DIR, os.W_OK):
     DATA_DIR = os.environ.get("TMPDIR", "/tmp")
-STORE = FileSettingsStore(DATA_DIR)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
@@ -77,6 +77,7 @@ if not all([SUPABASE_URL, SUPABASE_KEY]):
 from supabase import Client, create_client  # noqa: E402  (after env validation)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+STORE = SharedQueryStatusStore(FileSettingsStore(DATA_DIR), supabase_client=supabase)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

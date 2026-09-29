@@ -1,0 +1,76 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+concurrency:
+  group: staging
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify (Tests & Builds)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install backend dependencies & test
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -r requirements.txt
+          pip install pytest deepeval pytest-asyncio
+          python -m pytest tests/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build Frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
+
+  deploy_railway_staging:
+    name: Deploy API & Frontend → Railway (Staging)
+    needs: [verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+      - name: Deploy to Railway Staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "RAILWAY_TOKEN_STAGING secret is not configured; skipping Railway deployment."
+            exit 0
+          fi
+          railway up --environment staging --ci -m "staging deploy: ${{ github.sha }}"
+
+  smoke_staging:
+    name: Automated Staging Smoke Tests
+    needs: [deploy_railway_staging]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke Check API Health
+        run: |
+          API_URL="${{ vars.API_URL_STAGING || 'https://acaicia-backend-staging.up.railway.app' }}"
+          echo "Checking $API_URL/settings..."
+          status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$API_URL/settings")
+          if [ "$status" = "200" ] || [ "$status" = "401" ]; then
+            echo "✓ Staging API is responding."
+          else
+            echo "::warning::Staging API returned status: $status"
+          fi

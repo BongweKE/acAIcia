@@ -1,0 +1,96 @@
+name: Promote to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run promotion'
+        type: boolean
+        default: false
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  verify_branch:
+    name: Assert Protected Branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Main Branch
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::Promote workflow can only be run from the main branch."
+            exit 1
+          fi
+
+  preflight:
+    name: Preflight Verifications
+    needs: verify_branch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install backend dependencies & test
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -r requirements.txt
+          pip install pytest deepeval pytest-asyncio
+          python -m pytest tests/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build Frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
+
+  deploy_railway_production:
+    name: Deploy API & Frontend → Railway (Production)
+    needs: [preflight]
+    if: inputs.dry_run != true
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+      - name: Deploy Production API
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "RAILWAY_TOKEN_PRODUCTION secret is not configured; skipping Railway deployment."
+            exit 0
+          fi
+          railway up --environment production --ci -m "production deploy: ${{ github.sha }}"
+
+  smoke_production:
+    name: Automated Production Smoke Tests
+    needs: [deploy_railway_production]
+    if: always() && needs.deploy_railway_production.result == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check Production API Health
+        run: |
+          API_URL="${{ vars.API_URL_PRODUCTION || 'https://acaicia-backend-production.up.railway.app' }}"
+          echo "Probing API at $API_URL/settings..."
+          status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$API_URL/settings")
+          if [ "$status" = "200" ] || [ "$status" = "401" ]; then
+            echo "✓ Production API is responding."
+          else
+            echo "::error::Production API returned unexpected status: $status"
+            exit 1
+          fi
