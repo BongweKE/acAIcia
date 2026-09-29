@@ -480,7 +480,7 @@ def run_rag_query(
                 {
                     "query_text": optimized_query,
                     "query_embedding": query_embedding,
-                    "match_count": 8,
+                    "match_count": 15,
                 },
             ).execute()
             results = matches.data if matches.data else []
@@ -492,7 +492,7 @@ def run_rag_query(
                     {
                         "query_embedding": query_embedding,
                         "match_threshold": 0.4,
-                        "match_count": 8,
+                        "match_count": 15,
                     },
                 ).execute()
                 results = matches.data if matches.data else []
@@ -1097,7 +1097,7 @@ def run_rag_query_stream(
                     {
                         "query_text": search_query,
                         "query_embedding": embedding_list,
-                        "match_count": 8,
+                        "match_count": 15,
                         "rrf_k": 60,
                     },
                 ).execute()
@@ -1113,7 +1113,7 @@ def run_rag_query_stream(
                         {
                             "query_embedding": embedding_list,
                             "match_threshold": 0.3,
-                            "match_count": 8,
+                            "match_count": 15,
                         },
                     ).execute()
                 )

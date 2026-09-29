@@ -21,9 +21,9 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 COPY backend/requirements-railway.txt /app/backend/requirements-railway.txt
 RUN pip install --no-cache-dir -r /app/backend/requirements-railway.txt
 
-# Bake the retrieval embedding model into the image so cold starts never download it.
+# Bake the retrieval embedding model and reranker into the image so cold starts never download them.
 # Must match the model used to embed the Supabase corpus (768-dim bge-base-en-v1.5).
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-base-en-v1.5')"
+RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; SentenceTransformer('BAAI/bge-base-en-v1.5'); CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
 
 # Application package + benchmark datasets used by the evaluation engine.
 COPY backend/ /app/backend/

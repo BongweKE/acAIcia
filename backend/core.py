@@ -136,7 +136,7 @@ class SharedQueryStatusStore:
 
     def read_status(self, query_id: str) -> Optional[dict]:
         local_data = self.file_store.read_status(query_id)
-        if local_data and local_data.get("status") in ("completed", "failed"):
+        if local_data:
             return local_data
 
         if self.supabase:
