@@ -78,7 +78,58 @@ sequenceDiagram
 
 ### 3. Synthesis Agent (Answer Generation & Personalization)
 - **User Preference Injection:** Dynamically appends user custom research instructions from settings into the prompt context.
-- **Citation Discipline:** Strictly mandates inline `[Author(s), Year]` scientific citations.
+- **Citation Discipline:** Strictly mandates inline `[Author(s), Year]` scientific citations via pre-computed citation tags.
+
+#### Citation Protocol & Lifecycle
+
+The citation system spans the full pipeline from retrieval to frontend rendering. Understanding the complete lifecycle is essential for maintaining citation quality.
+
+##### A. Citation Tag Pre-Computation (`pipeline.py`)
+Before the synthesis prompt is assembled, the pipeline loops through the top 5 reranked chunks and pre-computes an exact citation tag for each:
+
+| Condition | Tag Format | Example |
+|:---|:---|:---|
+| Multiple authors available | `[FirstAuthor et al., Year]` | `[Hoang et al., 2010]` |
+| Single author available | `[Author, Year]` | `[Mwangi, 2024]` |
+| No authors, title looks like a code/DOI | `[Landscape Alliance, Year]` | `[Landscape Alliance, 2023]` |
+| No authors, real title available | `[ShortTitle..., Year]` | `[Impact of Climate Change on..., 2019]` |
+
+Each source excerpt is injected into the context with an explicit directive:
+```
+Source 1 (MUST USE THIS EXACT CITATION TAG: [Hoang et al., 2010]):
+Title: Peatland Hydrology in Central Kalimantan
+Authors: Hoang, T.T., Nguyen, L.
+Year: 2010
+Excerpt: ...
+```
+
+##### B. Synthesis Prompt Rules
+Both the streaming and polling synthesis prompts enforce four core citation rules:
+1. **MUST** use only the exact CITATION TAG provided above each source excerpt.
+2. **NEVER** use index labels or document numbers (`[Document 1]`, `[1]`).
+3. **NEVER** output raw manuscript codes or file IDs (`[S10457-026-01510-X]`).
+4. **Ensure** every claim is backed by a specific inline citation using the exact tag.
+
+##### C. Source List Construction
+The `sources` array is built from **all** top-5 reranked retrieval results **before** the synthesis LLM call. Each source contains: `title`, `authors`, `year`, `url`, `doi`, and optionally `snippet` and `score`. Sources are deduplicated by exact metadata equality.
+
+##### D. Known Limitations & Documented Issues (Backlog Issue #21)
+
+> **⚠️ Active Issue — Citation-Source Alignment Gap**
+>
+> Two known quality issues exist in the current citation pipeline:
+>
+> 1. **Duplicate References in Answer Text**: The LLM may spontaneously generate a "References" or "Bibliography" section at the end of its answer (triggered by the academic context metadata). This duplicates the Source Cards displayed by the frontend. No post-processing currently strips these trailing sections from `synth_text`.
+>
+> 2. **Source Cards Showing Uncited Papers**: All 5 retrieved sources are displayed as Source Cards regardless of whether the LLM actually cited them inline. The LLM is instructed to cite relevant sources but is not obligated to cite *all* provided sources. There is no post-synthesis reconciliation step that filters the `sources` array down to only the papers actually referenced in the synthesized text.
+>
+> Both issues are persisted in `semantic_cache` and replayed on cache hits. See [BACKLOG.md Issue #21](../BACKLOG.md) for the implementation plan.
+
+##### E. Evaluation Metrics
+Citation quality is scored by `score_citation_quality()` in `evaluation_engine.py` across three dimensions:
+1. **Format compliance**: Proper `[Author, Year]` format vs. prohibited `[Document N]` numbering.
+2. **Author/year verification**: Whether cited author tokens and years match retrieved source metadata.
+3. **Paragraph coverage**: Percentage of substantial paragraphs (>80 chars) containing at least one citation.
 
 ---
 

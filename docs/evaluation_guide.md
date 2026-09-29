@@ -98,7 +98,15 @@ For future development or external research benchmarking:
 2. **Source Cross-Verification**: Extracted author surnames and publication years are verified against metadata in retrieved source chunks.
 3. **Paragraph Coverage**: Every substantive explanatory paragraph (>80 characters) must contain at least one valid citation.
 
----
+#### Known Evaluation Blind Spots (Planned Improvements — Issue #21)
+
+The current `score_citation_quality` does **not** detect two quality issues identified in production:
+
+1. **Duplicate References Section**: The scorer does not check whether the LLM generated a trailing "References" or "Bibliography" section that duplicates Source Cards. A planned improvement will add a penalty component for answers containing trailing bibliography sections when Source Cards are present.
+
+2. **Source-to-Citation Alignment**: The scorer verifies that cited authors/years *exist* among retrieved sources (forward check: citation → source), but does not check the reverse (backward check: source → citation). It does not flag when a source in the `sources` array was never cited inline. A planned `source_citation_alignment` metric will calculate the ratio of cited sources to total retrieved sources to detect this gap.
+
+See [BACKLOG.md Issue #21](../BACKLOG.md) for the full implementation plan.
 
 ## 🚀 4. How to Run Evaluations
 

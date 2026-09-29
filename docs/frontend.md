@@ -23,6 +23,28 @@ The acAIcia frontend is a modern **Vite 5 + React 18 + TypeScript + React Router
 
 ---
 
+## 🔗 Citation Display Architecture
+
+### Dual Rendering System
+acAIcia renders citation information through two separate, parallel systems:
+
+1. **Inline Citations (Answer Body)**: The LLM generates `[Author(s), Year]` citations within the synthesized answer text (e.g., `[Hoang et al., 2010]`). These are rendered as plain text within Markdown paragraphs by the `markdown-to-jsx` library in [`MessageItem.tsx`](../frontend/src/components/chat/MessageItem.tsx). They are **not** interactive — they do not link to the Source Cards below or render as clickable elements.
+
+2. **Source Cards (Retrieved Sources Section)**: Below each assistant response, a collapsible "Retrieved Peer-Reviewed Sources" section displays interactive cards ([`SourceCard.tsx`](../frontend/src/components/chat/SourceCard.tsx)) for each source returned by the retrieval pipeline. Each card shows the publication title, authors, year, and a DOI link button. An expandable "Show Chunk Preview" drawer displays the relevant text excerpt.
+
+### Source-to-Citation Alignment
+The `sources` array is constructed from retrieval results **before** synthesis, meaning:
+- All 5 reranked sources appear as Source Cards regardless of whether the LLM cited them.
+- The LLM may cite only 2–3 of the 5 sources if the others are less relevant to the specific query angle.
+- There is currently no visual distinction between sources that were cited inline and sources that were merely retrieved.
+
+> **Known Issue (Backlog #21)**: A planned improvement will add "Cited" / "Retrieved" badges to Source Cards based on whether the source's author/year appears in the synthesized answer text. See [BACKLOG.md Issue #21](../BACKLOG.md) for the implementation plan.
+
+### Streaming Source Delivery
+In SSE streaming mode, the backend emits a `sources` event **before** synthesis begins ([`pipeline.py:1231`](../backend/pipeline.py)). This allows the frontend to render Source Cards immediately while answer tokens stream below. The sources array is attached to the assistant message via `ChatContext.tsx` as soon as the `sources` event arrives.
+
+---
+
 ## 💬 Multi-Session Chat & User Customization Guide
 
 ### 1. Multi-Session Management
