@@ -13,6 +13,8 @@ CREATE INDEX IF NOT EXISTS idx_semantic_cache_topic_category
   ON public.semantic_cache (topic_category);
 
 -- RPC for native pgvector similarity matching with topic guard
+DROP FUNCTION IF EXISTS public.match_semantic_cache_pgvector;
+
 CREATE OR REPLACE FUNCTION public.match_semantic_cache_pgvector (
   p_query_embedding vector(768),
   p_match_threshold float default 0.95,
