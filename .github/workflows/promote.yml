@@ -1,6 +1,8 @@
 name: Promote to Production
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -61,7 +63,7 @@ jobs:
   deploy_railway_production:
     name: Deploy API & Frontend → Railway (Production)
     needs: [preflight]
-    if: inputs.dry_run != true
+    if: github.event_name == 'push' || inputs.dry_run != true
     runs-on: ubuntu-latest
     environment: production
     steps:

@@ -21,7 +21,12 @@ from backend.core import (
     get_langfuse_client,
     trace_generation_with_langfuse,
 )
-from backend.pipeline import get_cached_reranker, rerank_chunks, run_rag_query
+from backend.pipeline import (
+    get_cached_reranker,
+    rerank_chunks,
+    run_rag_query,
+    run_rag_query_stream,
+)
 
 
 def test_shared_query_status_store_writes_both_local_and_supabase():
@@ -166,6 +171,65 @@ def test_native_pgvector_semantic_cache_rpc_hit(monkeypatch):
     last_status = status_updates[-1]
     assert last_status["status"] == "completed"
     assert last_status["response"] == "Cached agroforestry response from pgvector."
+    assert last_status["cache_hit"] is True
+
+
+def test_native_pgvector_semantic_cache_stream_rpc_hit(monkeypatch):
+    mock_supabase = MagicMock()
+    mock_rpc = MagicMock()
+    mock_supabase.rpc.return_value = mock_rpc
+
+    # Simulate RPC match_semantic_cache_pgvector returning a hit
+    mock_rpc.execute.return_value = MagicMock(
+        data=[
+            {
+                "cache_id": "cache-uuid-stream-1111",
+                "query_text": "What is peatland hydrology?",
+                "response_text": "Cached peatland response from streaming pgvector.",
+                "sources": [{"title": "Cached Peatland Paper"}],
+                "similarity": 0.994,
+            }
+        ]
+    )
+
+    mock_embed = MagicMock()
+    mock_embed.encode.return_value = [[0.15] * 768]
+
+    status_updates = []
+    events = list(
+        run_rag_query_stream(
+            query_id="query-stream-pgvector-test",
+            user_query="What is peatland hydrology?",
+            supabase=mock_supabase,
+            embed_model=mock_embed,
+            call_llm=MagicMock(),
+            call_llm_stream=MagicMock(),
+            provider_getter=lambda: "mistral",
+            status_writer=lambda s: status_updates.append(s),
+        )
+    )
+
+    # Must verify RPC was called with disambiguated parameter names
+    rpc_calls = [c for c in mock_supabase.rpc.call_args_list if c.args and c.args[0] == "match_semantic_cache_pgvector"]
+    assert len(rpc_calls) > 0
+    rpc_args = rpc_calls[0].args[1]
+    assert "p_query_embedding" in rpc_args
+    assert "p_match_threshold" in rpc_args
+    assert "p_filter_topic" in rpc_args
+
+    # Check yielded events and status update
+    done_event = next((e for e in events if e.get("type") == "done"), None)
+    assert done_event is not None
+    assert done_event["cache_hit"] is True
+
+    token_event = next((e for e in events if e.get("type") == "token"), None)
+    assert token_event is not None
+    assert token_event["text"] == "Cached peatland response from streaming pgvector."
+
+    assert len(status_updates) > 0
+    last_status = status_updates[-1]
+    assert last_status["status"] == "completed"
+    assert last_status["response"] == "Cached peatland response from streaming pgvector."
     assert last_status["cache_hit"] is True
 
 
