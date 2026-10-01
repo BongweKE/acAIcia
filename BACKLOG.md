@@ -24,6 +24,7 @@ The recommended implementation sequence resolves dependencies, eliminates immedi
 ```mermaid
 flowchart TD
     subgraph P0["Sprint 0: P0 Hotfixes & Security (Immediate)"]
+        P0_0["#21: Citation System Quality Fix"]
         P0_1["#13: Migration 005 RLS & Invoker Fix"]
         P0_2["#14: Admin CSV Export 401 Fix"]
         P0_3["#15: Exact Token Telemetry (No 50/50 Split)"]
@@ -59,15 +60,16 @@ flowchart TD
 
 ### Preferred Step-by-Step Execution Sequence
 
-1. **Step 1 (Immediate Hotfix Batch — P0 / Sprint 0)**: Ship Issues **#13 → #14 → #15 → #16 → #17 → #18** in a single focused PR.
+1. **Step 1 (Immediate Hotfix Batch — P0 / Sprint 0)**: Ship Issues **#21 → #13 → #14 → #15 → #16 → #17 → #18** in a single focused PR.
    - **Order**:
-     1. **#13** (Migration 005 RLS & Invoker Fix): Must be fixed and applied to Supabase first to enforce ADR 0010 security and allow evaluation details and canaries to persist.
-     2. **#14** (Admin CSV Export 401 Fix): Restores broken log export functionality in the production `/admin` dashboard.
-     3. **#15** (Exact Token Telemetry): Eliminates 50/50 token split heuristic and stops 300% cost inflation in subsequent query telemetry.
-     4. **#16** (Eval Worker Failure State Handling): Updates `evaluation_runs.status = 'failed'` on uncaught exceptions, ending admin UI spinner deadlocks.
-     5. **#17** (Legacy Modal POST /settings Auth): Closes open endpoint in rollback `backend/app.py`.
-     6. **#18** (Fix Dev Tool URLs): Points CLI and DeepEval tooling to Railway by default.
-   - *Rationale*: Eliminates active 401 errors, stops admin UI freezes on failed evals, restores exact token accounting for billing, secures rollback routes, and satisfies ADR 0010 database security before running Migration 005.
+     1. **#21** (Citation System Quality Fix): User-facing citation quality regression — synthesis prompt inconsistency between streaming/polling causes duplicate References sections; source list shows uncited papers. Highest priority because it directly impacts the core academic value proposition of every synthesized answer.
+     2. **#13** (Migration 005 RLS & Invoker Fix): Must be fixed and applied to Supabase first to enforce ADR 0010 security and allow evaluation details and canaries to persist.
+     3. **#14** (Admin CSV Export 401 Fix): Restores broken log export functionality in the production `/admin` dashboard.
+     4. **#15** (Exact Token Telemetry): Eliminates 50/50 token split heuristic and stops 300% cost inflation in subsequent query telemetry.
+     5. **#16** (Eval Worker Failure State Handling): Updates `evaluation_runs.status = 'failed'` on uncaught exceptions, ending admin UI spinner deadlocks.
+     6. **#17** (Legacy Modal POST /settings Auth): Closes open endpoint in rollback `backend/app.py`.
+     7. **#18** (Fix Dev Tool URLs): Points CLI and DeepEval tooling to Railway by default.
+   - *Rationale*: Citation quality fix is prioritized first because it affects every user query. Remaining items eliminate active 401 errors, stop admin UI freezes on failed evals, restore exact token accounting for billing, secure rollback routes, and satisfy ADR 0010 database security before running Migration 005.
 
 2. **Step 2 (UX & Cost Calibration — P1 / Phase 1)**: Implement **#20 → #1 → #3 → #2**.
    - **Order**:
@@ -99,6 +101,44 @@ flowchart TD
 ## 📋 Comprehensive Backlog Item Catalog
 
 ### Tier 0: P0 — Hotfixes & Production Security (Sprint 0)
+
+---
+
+#### Issue #21: Citation System Quality Fix (Prompt Parity + Source Reconciliation)
+- **Priority**: `priority:p0` | **Phase**: Sprint 0 | **Effort**: Small-Medium (2–3 days)
+- **Component**: Backend Pipeline (`backend/pipeline.py`), Frontend (`frontend/src/components/chat/MessageItem.tsx`, `SourceCard.tsx`)
+- **Problem Statement**:
+  Two user-facing citation quality issues have been identified that undermine the academic credibility of synthesized answers:
+  
+  **Issue A — Duplicate References in Answer Text**: The streaming synthesis prompt (`run_rag_query_stream`, `pipeline.py:1211`) includes Rule 5: *"At the end of your answer, provide a 'References' section listing each cited work with its title and DOI URL."* This instruction does not exist in the polling synthesis prompt (`run_rag_query`, `pipeline.py:564-579`). The LLM-generated References section appears as markdown text inside the answer body (`message.content`), duplicating the information already displayed as interactive Source Cards below the answer. Even on the polling path, LLMs may spontaneously generate a bibliography section when given academic metadata in the context.
+  
+  **Issue B — Source Cards Showing Uncited Papers**: The `sources` array is constructed from all top-5 reranked retrieval results *before* the synthesis LLM call (`pipeline.py:1135-1199`). The LLM may only cite 2-3 of the 5 provided sources if the others are not relevant to the specific question angle. However, the frontend displays all 5 source cards unconditionally (`MessageItem.tsx:84-109`), creating a mismatch between inline `[Author, Year]` citations and the "Retrieved Peer-Reviewed Sources" section.
+  
+  **Amplifying Factor**: Both issues are cached in `semantic_cache` and replayed on cache hits without opportunity for correction.
+
+- **Implementation Strategy** (Three Phases, Ordered by Risk):
+  1. **Fix A — Prompt Parity + References Stripping** (lowest risk):
+     - Remove Rule 5 from the streaming synthesis prompt to achieve parity with the polling prompt.
+     - Add a lightweight post-processing step to strip any LLM-spontaneous "References" / "Bibliography" / "Sources Cited" section from `synth_text` before emitting or caching, using an anchored regex pattern.
+  2. **Fix B — Frontend "Cited" vs "Retrieved" Badges** (additive, no data mutation):
+     - In `MessageItem.tsx`, after synthesis completes, scan `message.content` for `[Author, Year]` citation tags.
+     - In `SourceCard.tsx`, display a "Cited" badge on sources that were referenced inline, and a "Retrieved" badge on sources that were provided as context but not explicitly cited by the LLM.
+  3. **Fix C — Backend Source Reconciliation** (most complete, requires careful testing):
+     - After synthesis completes, extract all `[Author(s), Year]` citation tags from `synth_text` using regex.
+     - Filter the `sources` array to retain only papers whose author/year match a cited tag.
+     - Defensive fallback: if zero matches are found (regex failure), retain all sources.
+     - For the streaming path, emit a `sources_update` event after synthesis or include the reconciled `sources` in the `done` event.
+
+- **Acceptance Criteria**:
+  - No LLM-generated References/Bibliography section appears in the rendered answer text.
+  - Source Cards visually distinguish between cited and merely retrieved sources.
+  - Cached responses in `semantic_cache` are stored with post-processed `response_text` (references stripped).
+  - Evaluation metric `score_citation_quality` is extended to detect source-to-citation alignment gaps.
+
+- **Testing Strategy**:
+  - Verify against 10 sample queries from `test_questions.csv` that no References section appears in `synth_text`.
+  - Verify that the regex stripping does not truncate answer content that discusses "references" as a topic.
+  - Verify that source reconciliation correctly matches `[Hoang et al., 2010]` to a source with `authors: "Hoang, ..."`, `year: 2010`.
 
 ---
 
@@ -480,6 +520,7 @@ flowchart TD
 
 | Backlog Issue | Primary Component | Related ADR / Document | Target Metric / Outcome |
 |:---|:---|:---|:---|
+| **#21** | Citation Pipeline | [docs/backend_agents.md](docs/backend_agents.md) | Zero duplicate References; source-to-citation alignment ≥ 90% |
 | **#13** | Database Migration | [ADR 0010](docs/adrs/0010-database-security-posture-rls-deny-by-default.md) | 100% RLS compliance; eval persistence |
 | **#14** | Admin CSV Export | [ADR 0002](docs/adrs/0002-machine-uuid-guest-tracking-and-admin-model-governance.md) | Zero 401 errors on admin CSV downloads |
 | **#15** | Token Telemetry | [docs/cost_model.md](docs/cost_model.md) | Exact input/output token cost tracking |

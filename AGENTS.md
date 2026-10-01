@@ -69,8 +69,13 @@ The backend query engine (`backend/pipeline.py`, served by `backend/server.py`) 
 
 ### 4. Synthesis Agent ✍️
 - **Role**: Generates professional academic answers using retrieved internal document excerpts.
-- **Citation Protocol**: Strictly enforces inline citations formatted as `[Author(s), Year]` (e.g., `[Hoang et al., 2010]`). Never uses document numbers (e.g., `[Document 1]`).
+- **Citation Protocol**: Strictly enforces inline citations formatted as `[Author(s), Year]` (e.g., `[Hoang et al., 2010]`). Never uses document numbers (e.g., `[Document 1]`). Citation tags are pre-computed per source before prompt assembly using author surname extraction and year matching.
 - **User Customization**: Appends active user custom instructions from profile settings to tailor synthesis formatting.
+- **Source List Construction**: The `sources` array is built from all top-5 reranked retrieval results **before** the synthesis call. Sources are emitted to the frontend immediately (SSE `sources` event) so Source Cards render while tokens stream.
+- **Known Limitation (Issue #21 — Citation-Source Alignment Gap)**:
+  - The LLM may spontaneously generate a "References" section at the end of its answer, duplicating the Source Cards displayed by the frontend. No post-processing currently strips these trailing sections.
+  - All 5 retrieved sources are displayed as Source Cards regardless of whether the LLM cited them inline. There is no post-synthesis reconciliation step that filters `sources` to only cited papers.
+  - Both issues are cached in `semantic_cache` and replayed on cache hits. See [BACKLOG.md Issue #21](BACKLOG.md) for the three-phase implementation plan (prompt parity + references stripping → frontend Cited/Retrieved badges → backend source reconciliation).
 
 ### 5. Semantic Cache Subsystem ⚡
 - **Behavior**: Stores raw user query embeddings and answers in `semantic_cache` table with domain topic tagging (`topic_category`).
@@ -193,7 +198,7 @@ The backend query engine (`backend/pipeline.py`, served by `backend/server.py`) 
 
 7. **Product Backlog & Implementation Priorities (`BACKLOG.md`)**:
    - The authoritative engineering backlog is tracked in [`BACKLOG.md`](BACKLOG.md) and [`future-changes/`](future-changes/).
-   - Priority sequence: **P0 Hotfixes & Security** (Sprint 0: Migration 005 RLS, CSV 401 fix, exact token telemetry, eval worker error handling, rollback auth) → **P1 Wins** (Phase 1: Streaming SSE, cost model updates, reranker, LiteLLM gateway) → **P2 Scale** (Phase 2: multi-replica shared store, pgvector cache, CI eval gate, Langfuse) → **P3 Hardening** (Phase 3: bge-m3, structured outputs, Modal deprecation).
+   - Priority sequence: **P0 Hotfixes & Security** (Sprint 0: **#21 Citation Quality Fix**, Migration 005 RLS, CSV 401 fix, exact token telemetry, eval worker error handling, rollback auth) → **P1 Wins** (Phase 1: Streaming SSE, cost model updates, reranker, LiteLLM gateway) → **P2 Scale** (Phase 2: multi-replica shared store, pgvector cache, CI eval gate, Langfuse) → **P3 Hardening** (Phase 3: bge-m3, structured outputs, Modal deprecation).
 
 8. **Branch Protection & Pull Request Governance (MANDATORY SOP 001)**:
    - **Direct pushes to `main` or `staging` are strictly prohibited.**
