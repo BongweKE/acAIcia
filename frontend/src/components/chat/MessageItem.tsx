@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ChatMessage } from '../../types';
 import { SourceCard } from './SourceCard';
 import { RatingButtons } from '../feedback/RatingButtons';
@@ -14,6 +14,30 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
   const [showSources, setShowSources] = useState(true);
   const isUser = message.role === 'user';
   const isProcessing = message.status === 'processing';
+
+  const enrichedSources = useMemo(() => {
+    if (!message.sources || message.sources.length === 0 || !message.content) return message.sources;
+    // If backend already set cited flags, use them
+    if (message.sources.some(s => s.cited !== undefined)) return message.sources;
+    
+    // Client-side fallback: scan message content for [Author, Year] citation tags
+    const citationPattern = /\[([A-Za-z\u00C0-\u024F\-\s]+?(?:\s+et\s+al\.)?),?\s*(\d{4})\]/g;
+    const citations = [...message.content.matchAll(citationPattern)];
+    
+    if (citations.length === 0) return message.sources;
+    
+    return message.sources.map(source => {
+      const authorsStr = typeof source.authors === 'string' ? source.authors : '';
+      const surname = authorsStr.split(',')[0].trim().split(' ').pop()?.toLowerCase() || '';
+      const yearStr = String(source.year);
+      
+      const isCited = citations.some(([, authorText, year]) => {
+        return surname && authorText.toLowerCase().includes(surname) && year === yearStr;
+      });
+      
+      return { ...source, cited: isCited };
+    });
+  }, [message.sources, message.content]);
 
   return (
     <div
@@ -81,7 +105,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
             )}
 
             {/* Source Cards Section */}
-            {message.sources && message.sources.length > 0 && (
+            {enrichedSources && enrichedSources.length > 0 && (
               <div className="pt-3 border-t border-border space-y-2.5">
                 <button
                   type="button"
@@ -90,7 +114,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                   <span>
-                    Retrieved Peer-Reviewed Sources ({message.sources.length})
+                    Retrieved Peer-Reviewed Sources ({enrichedSources.length})
                   </span>
                   {showSources ? (
                     <ChevronUp className="w-3.5 h-3.5" />
@@ -101,7 +125,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
 
                 {showSources && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-                    {message.sources.map((source, idx) => (
+                    {enrichedSources.map((source, idx) => (
                       <SourceCard key={idx} source={source} index={idx} />
                     ))}
                   </div>

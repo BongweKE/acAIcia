@@ -79,6 +79,72 @@ def rerank_chunks(
         return chunks[:top_k], False
 
 
+def strip_trailing_references(text: str) -> str:
+    """Strip LLM-generated References/Bibliography sections from synthesis output.
+    
+    The frontend renders Source Cards with DOI links separately, so any
+    trailing bibliography the LLM produces is redundant (Issue #21).
+    """
+    import re
+    # Match a trailing references-like heading followed by content to end of string.
+    # The heading must appear after a blank line and use common bibliography titles.
+    pattern = r'\n\s*(?:#{1,4}\s*)?(?:References|Bibliography|Sources Cited|Works Cited|Literature Cited|Reference List)\s*\n.*'
+    cleaned = re.split(pattern, text, maxsplit=1, flags=re.IGNORECASE | re.DOTALL)[0]
+    return cleaned.rstrip()
+
+
+def reconcile_sources_with_citations(
+    synth_text: str, sources: list[dict]
+) -> list[dict]:
+    """Mark each source as cited/uncited based on inline [Author, Year] tags.
+    
+    Scans the synthesis text for citation tags and fuzzy-matches them against
+    source metadata. Adds a 'cited' boolean to each source dict.
+    Defensive: if zero citations are detected (regex failure), marks all as cited.
+    """
+    import re
+    # Extract all [Author(s), Year] patterns from the synthesis text
+    citation_tags = re.findall(
+        r'\[([A-Za-z\u00C0-\u024F\-\s]+?(?:\s+et\s+al\.)?),?\s*(\d{4})\]',
+        synth_text
+    )
+    
+    if not citation_tags:
+        # Defensive fallback: if no citations detected, mark all as cited
+        for s in sources:
+            s['cited'] = True
+        return sources
+    
+    for source in sources:
+        authors_str = source.get('authors', '')
+        year_str = str(source.get('year', ''))
+        
+        # Extract the first author's surname for matching
+        if isinstance(authors_str, list):
+            first_author = authors_str[0].split(',')[0].strip() if authors_str else ''
+        else:
+            first_author = str(authors_str).split(',')[0].strip()
+        # Get the last word (surname) if it's a full name like "Tran Hoang"
+        surname = first_author.split()[-1] if first_author else ''
+        
+        source['cited'] = False
+        for author_text, year in citation_tags:
+            author_text_lower = author_text.lower()
+            # Check if the surname appears in the citation and the year matches
+            if surname and surname.lower() in author_text_lower and year == year_str:
+                source['cited'] = True
+                break
+            # Also check short title citations
+            title = source.get('title', '')
+            if title and len(title) >= 5:
+                short_title = title[:35].lower()
+                if short_title[:15] in author_text_lower and year == year_str:
+                    source['cited'] = True
+                    break
+    
+    return sources
+
+
 def run_rag_query(
     *,
     query_id: str,
@@ -592,6 +658,7 @@ def run_rag_query(
             telemetry["synthesis_ms"] = int((time.time() - s_start) * 1000)
             total_tokens += synth_res["tokens"]
             synth_text = synth_res["text"]
+            synth_text = strip_trailing_references(synth_text)
         except Exception as e:
             update_status(
                 {
@@ -728,6 +795,8 @@ def run_rag_query(
                     ).execute()
             except Exception as alert_err:
                 logger.warning("Alert check failed: %s", alert_err)
+
+        sources = reconcile_sources_with_citations(synth_text, sources)
 
         update_status(
             {
@@ -1208,7 +1277,6 @@ def run_rag_query_stream(
             2. NEVER use index labels or document numbers like "[Document 1]", "[Document 2]", "[Document 3]", or "[1]", "[2]".
             3. NEVER output raw manuscript codes or file IDs like "[S10457-026-01510-X]" or "[Pb23027]".
             4. Ensure every claim is backed by a specific inline citation using the exact tag.
-            5. At the end of your answer, provide a 'References' section listing each cited work with its title and DOI URL (https://doi.org/...).
             {custom_prompt_section}
             User's Original Query: {user_query}
 
@@ -1265,6 +1333,7 @@ def run_rag_query_stream(
                 return
 
             synth_text = "".join(synth_chunks)
+            synth_text = strip_trailing_references(synth_text)
             telemetry["synthesis_ms"] = int((time.time() - s_start) * 1000)
 
             # Exact token usage accounting
@@ -1319,6 +1388,10 @@ def run_rag_query_stream(
                     supabase.table("semantic_cache").insert(cache_payload).execute()
                 except Exception:
                     pass
+
+            sources = reconcile_sources_with_citations(synth_text, sources)
+            # Emit updated sources with citation flags after reconciliation
+            yield {"type": "sources", "sources": sources}
 
             update_status(
                 {

@@ -113,17 +113,13 @@ Both the streaming and polling synthesis prompts enforce four core citation rule
 ##### C. Source List Construction
 The `sources` array is built from **all** top-5 reranked retrieval results **before** the synthesis LLM call. Each source contains: `title`, `authors`, `year`, `url`, `doi`, and optionally `snippet` and `score`. Sources are deduplicated by exact metadata equality.
 
-##### D. Known Limitations & Documented Issues (Backlog Issue #21)
+##### D. Implemented Solutions (Issue #21)
 
-> **⚠️ Active Issue — Citation-Source Alignment Gap**
+> **✅ Resolved — Citation-Source Alignment & Redundancy**
 >
-> Two known quality issues exist in the current citation pipeline:
+> 1. **Stripping Trailing References**: A post-processing function (`strip_trailing_references`) automatically removes redundant LLM-generated "References" or "Bibliography" sections to prevent duplication with UI Source Cards.
 >
-> 1. **Duplicate References in Answer Text**: The LLM may spontaneously generate a "References" or "Bibliography" section at the end of its answer (triggered by the academic context metadata). This duplicates the Source Cards displayed by the frontend. No post-processing currently strips these trailing sections from `synth_text`.
->
-> 2. **Source Cards Showing Uncited Papers**: All 5 retrieved sources are displayed as Source Cards regardless of whether the LLM actually cited them inline. The LLM is instructed to cite relevant sources but is not obligated to cite *all* provided sources. There is no post-synthesis reconciliation step that filters the `sources` array down to only the papers actually referenced in the synthesized text.
->
-> Both issues are persisted in `semantic_cache` and replayed on cache hits. See [BACKLOG.md Issue #21](../BACKLOG.md) for the implementation plan.
+> 2. **Citation Reconciliation**: The `reconcile_sources_with_citations` function scans the synthesis text for `[Author, Year]` inline tags and matches them against source metadata, appending a `cited: boolean` flag to each source. This allows the frontend to clearly distinguish between 'Cited' and 'Retrieved' sources.
 
 ##### E. Evaluation Metrics
 Citation quality is scored by `score_citation_quality()` in `evaluation_engine.py` across three dimensions:

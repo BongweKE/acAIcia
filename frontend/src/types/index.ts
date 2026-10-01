@@ -277,6 +277,7 @@ export interface SourceChunk {
   doi: string;
   snippet?: string;
   score?: number;
+  cited?: boolean;  // Whether this source was cited inline in the synthesis
 }
 
 export interface QueryStatusResponse {

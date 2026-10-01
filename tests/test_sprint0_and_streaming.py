@@ -509,7 +509,7 @@ class TestSprint0AndStreaming(unittest.TestCase):
 
         # Verify sources event
         sources_events = [e for e in events if e["type"] == "sources"]
-        self.assertEqual(len(sources_events), 1)
+        self.assertEqual(len(sources_events), 2)
         src = sources_events[0]["sources"][0]
         self.assertEqual(src["url"], "https://cifor-icraf.org/pub1")
         self.assertEqual(src["score"], 0.033)
