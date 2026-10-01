@@ -21,7 +21,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
     if (message.sources.some(s => s.cited !== undefined)) return message.sources;
     
     // Client-side fallback: scan message content for [Author, Year] citation tags
-    const citationPattern = /\[([A-Za-z\u00C0-\u024F\-\s]+?(?:\s+et\s+al\.)?),?\s*(\d{4})\]/g;
+    const citationPattern = /\[([A-Za-z\u00C0-\u024F\-\s\'.&]+?(?:\s+et\s+al\.)?),?\s*(\d{4})\]/g;
     const citations = [...message.content.matchAll(citationPattern)];
     
     if (citations.length === 0) return message.sources;

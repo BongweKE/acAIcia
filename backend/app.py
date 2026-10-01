@@ -870,10 +870,12 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
             """
 
         try:
+            from backend.pipeline import strip_trailing_references, reconcile_sources_with_citations
             synth_res = call_llm(synthesis_prompt, "synthesis")
             telemetry["synthesis_ms"] = int((time.time() - s_start) * 1000)
             total_tokens += synth_res["tokens"]
             synth_text = synth_res["text"]
+            synth_text = strip_trailing_references(synth_text)
         except Exception as e:
             update_status({"status": "failed", "error": f"System Error: Synthesis Agent failed: {e}"})
             return
@@ -986,6 +988,8 @@ def process_query_async(query_id: str, user_query: str, session_id: Optional[str
                     }).execute()
             except Exception as alert_err:
                 logger.warning(f"Alert check failed: {alert_err}")
+
+        sources = reconcile_sources_with_citations(synth_text, sources)
 
         update_status({
             "status": "completed",

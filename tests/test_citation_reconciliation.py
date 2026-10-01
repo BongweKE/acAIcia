@@ -54,3 +54,24 @@ def test_reconcile_sources_with_citations_defensive_fallback():
     
     assert updated_sources[0]["cited"] is True
     assert updated_sources[1]["cited"] is True
+
+def test_strip_trailing_references_markdown_bold():
+    text = "The answer.\n\n**References**\n[1] Author, 2024"
+    cleaned = strip_trailing_references(text)
+    assert cleaned == "The answer."
+
+def test_strip_trailing_references_colon():
+    text = "The answer.\n\nReferences:\n[1] Author, 2024"
+    cleaned = strip_trailing_references(text)
+    assert cleaned == "The answer."
+
+def test_reconcile_sources_with_citations_apostrophe():
+    synth_text = "According to [O'Connor et al., 2023], the climate is changing."
+    sources = [
+        {"title": "Climate Change", "authors": "O'Connor, J.", "year": 2023},
+        {"title": "Other", "authors": "Smith, A.", "year": 2023}
+    ]
+    updated_sources = reconcile_sources_with_citations(synth_text, sources)
+    assert updated_sources[0]["cited"] is True
+    assert updated_sources[1]["cited"] is False
+

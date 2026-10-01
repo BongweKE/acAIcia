@@ -19,3 +19,4 @@ This directory contains records of key architectural decisions made during the d
 | [0013](0013-cross-encoder-reranker-for-hybrid-search-precision.md) | Cross-Encoder Reranker for Hybrid Search Precision | Accepted | 2026-09-29 |
 | [0014](0014-litellm-unified-model-gateway-with-multi-provider-fallback.md) | LiteLLM Unified Model Gateway with Multi-Provider Fallback | Accepted | 2026-09-29 |
 | [0015](0015-database-schema-disambiguation-canary-integrity-evaluation-trends-aggregation.md) | Database Schema Disambiguation, Canary Integrity & Evaluation Trends Aggregation | Accepted | 2026-09-29 |
+| [0016](0016-citation-source-reconciliation-and-references-stripping.md) | Citation Source Reconciliation and References Stripping | Accepted | 2026-10-01 |
