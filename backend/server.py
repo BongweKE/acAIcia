@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import threading
 import time
 import uuid
@@ -1147,6 +1148,10 @@ def handle_query(request: QueryRequest):
         )
 
 
+STREAM_KEEPALIVE_INTERVAL_SEC = float(os.environ.get("STREAM_KEEPALIVE_SEC", "15.0"))
+MAX_STREAM_TIMEOUT_SEC = float(os.environ.get("STREAM_TIMEOUT_SEC", "240.0"))
+
+
 @app.post("/query/stream")
 def handle_query_stream(request: QueryRequest):
     query_id = str(uuid.uuid4())
@@ -1155,23 +1160,78 @@ def handle_query_stream(request: QueryRequest):
     def event_stream():
         import json
 
-        for event in run_rag_query_stream(
-            query_id=query_id,
-            user_query=request.query,
-            conversation_history=request.conversation_history,
-            session_id=request.session_id,
-            user_id=request.user_id,
-            guest_session_id=request.guest_session_id,
-            supabase=supabase,
-            embed_model=embed_model,
-            call_llm=call_llm,
-            call_llm_stream=call_llm_stream,
-            provider_getter=provider_getter,
-            status_writer=lambda payload: STORE.write_status(query_id, payload),
-            topic_classifier=_mistral_classifier,
-            logger=logger,
-        ):
-            yield f"data: {json.dumps(event)}\n\n"
+        q: queue.Queue = queue.Queue()
+        stop_event = threading.Event()
+        SENTINEL = object()
+        stream_start = time.time()
+
+        def worker():
+            try:
+                for event in run_rag_query_stream(
+                    query_id=query_id,
+                    user_query=request.query,
+                    conversation_history=request.conversation_history,
+                    session_id=request.session_id,
+                    user_id=request.user_id,
+                    guest_session_id=request.guest_session_id,
+                    supabase=supabase,
+                    embed_model=embed_model,
+                    call_llm=call_llm,
+                    call_llm_stream=call_llm_stream,
+                    provider_getter=provider_getter,
+                    status_writer=lambda payload: STORE.write_status(query_id, payload),
+                    topic_classifier=_mistral_classifier,
+                    logger=logger,
+                ):
+                    if stop_event.is_set():
+                        break
+                    q.put(event)
+            except Exception as exc:
+                logger.error("Unhandled error in stream worker for %s: %s", query_id, exc, exc_info=True)
+                STORE.write_status(
+                    query_id, {"status": "failed", "error": f"Internal Server Error: {exc}"}
+                )
+                q.put(exc)
+            finally:
+                q.put(SENTINEL)
+
+        worker_thread = threading.Thread(target=worker, daemon=True)
+        worker_thread.start()
+
+        # Emit initial ping comment immediately to open connection and flush proxy buffers
+        yield ": ping\n\n"
+
+        try:
+            while True:
+                try:
+                    item = q.get(timeout=STREAM_KEEPALIVE_INTERVAL_SEC)
+                    if item is SENTINEL:
+                        break
+                    if isinstance(item, Exception):
+                        logger.error("Error in stream worker for %s: %s", query_id, item)
+                        STORE.write_status(
+                            query_id, {"status": "failed", "error": str(item)}
+                        )
+                        yield f"data: {json.dumps({'type': 'error', 'error': str(item)})}\n\n"
+                        break
+                    yield f"data: {json.dumps(item)}\n\n"
+                except queue.Empty:
+                    if time.time() - stream_start > MAX_STREAM_TIMEOUT_SEC:
+                        logger.warning(
+                            "Stream exceeded max timeout of %ss for query %s",
+                            MAX_STREAM_TIMEOUT_SEC,
+                            query_id,
+                        )
+                        timeout_err = f"Stream processing timed out after {int(MAX_STREAM_TIMEOUT_SEC // 60)} minutes."
+                        STORE.write_status(
+                            query_id, {"status": "failed", "error": timeout_err}
+                        )
+                        yield f"data: {json.dumps({'type': 'error', 'error': timeout_err})}\n\n"
+                        break
+                    # Send periodic keepalive comment every 15s to keep reverse proxies from timing out
+                    yield ": keepalive\n\n"
+        finally:
+            stop_event.set()
 
     return StreamingResponse(
         event_stream(),

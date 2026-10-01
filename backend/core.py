@@ -324,7 +324,10 @@ def get_cached_embed_model(logger=None):
 # ─────────────────────────────────────────────────────────────────────────────
 # Mistral helpers
 # ─────────────────────────────────────────────────────────────────────────────
-def get_mistral_client():
+DEFAULT_MISTRAL_TIMEOUT_MS = int(os.environ.get("MISTRAL_TIMEOUT_MS", "210000"))
+
+
+def get_mistral_client(timeout_ms: Optional[int] = None):
     """Return a configured Mistral client or raise if the key is missing."""
     api_key = os.environ.get("MISTRAL_API_KEY")
     if not api_key:
@@ -333,19 +336,29 @@ def get_mistral_client():
         from mistralai.client import Mistral  # mistralai >= 1.x
     except ImportError:  # pragma: no cover - older SDK layout
         from mistralai import Mistral
-    return Mistral(api_key=api_key)
+    effective_timeout = timeout_ms if timeout_ms is not None else DEFAULT_MISTRAL_TIMEOUT_MS
+    try:
+        return Mistral(api_key=api_key, timeout_ms=effective_timeout)
+    except TypeError:
+        return Mistral(api_key=api_key)
 
 
 def mistral_complete(
-    prompt: str, model: str, max_tokens: int = 512, temperature: float = 0.0
+    prompt: str,
+    model: str,
+    max_tokens: int = 512,
+    temperature: float = 0.0,
+    timeout_ms: Optional[int] = None,
 ) -> str:
     """One-shot completion through Mistral — used for judges/classifiers."""
-    client = get_mistral_client()
+    client = get_mistral_client(timeout_ms=timeout_ms)
+    effective_timeout = timeout_ms if timeout_ms is not None else DEFAULT_MISTRAL_TIMEOUT_MS
     res = client.chat.complete(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
         temperature=temperature,
+        timeout_ms=effective_timeout,
     )
     return (res.choices[0].message.content or "").strip()
 
@@ -466,6 +479,7 @@ def build_llm_caller(
                     messages=messages,
                     max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                     temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                    timeout_ms=DEFAULT_MISTRAL_TIMEOUT_MS,
                 )
             except Exception as mistral_err:
                 err_str = str(mistral_err).lower()
@@ -473,6 +487,8 @@ def build_llm_caller(
                     "429" in err_str
                     or "rate_limited" in err_str
                     or "invalid" in err_str
+                    or "timeout" in err_str
+                    or "timed out" in err_str
                 ):
                     fallback = (
                         MISTRAL_FALLBACK_GUARDIAN_MODEL
@@ -484,6 +500,7 @@ def build_llm_caller(
                         messages=messages,
                         max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                         temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                        timeout_ms=DEFAULT_MISTRAL_TIMEOUT_MS,
                     )
                 else:
                     raise
@@ -532,6 +549,7 @@ def build_llm_caller(
                     api_key=api_key,
                     max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                     temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                    timeout=DEFAULT_MISTRAL_TIMEOUT_MS // 1000,
                 )
             except Exception as primary_err:
                 log.warning("LiteLLM primary call failed: %s. Trying backup.", primary_err)
@@ -771,6 +789,7 @@ def build_llm_stream_caller(
                         stream=True,
                         max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                         temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                        timeout=DEFAULT_MISTRAL_TIMEOUT_MS // 1000,
                     )
                     full_chunks = []
                     for chunk in stream_res:
@@ -804,6 +823,7 @@ def build_llm_stream_caller(
                     messages=messages,
                     max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                     temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                    timeout_ms=DEFAULT_MISTRAL_TIMEOUT_MS,
                 )
             except Exception as mistral_err:
                 err_str = str(mistral_err).lower()
@@ -811,6 +831,8 @@ def build_llm_stream_caller(
                     "429" in err_str
                     or "rate_limited" in err_str
                     or "invalid" in err_str
+                    or "timeout" in err_str
+                    or "timed out" in err_str
                 ):
                     fallback = (
                         MISTRAL_FALLBACK_GUARDIAN_MODEL
@@ -822,27 +844,75 @@ def build_llm_stream_caller(
                         messages=messages,
                         max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                         temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                        timeout_ms=DEFAULT_MISTRAL_TIMEOUT_MS,
                     )
                 else:
                     raise
 
             full_chunks = []
-            for chunk in stream_res:
-                content = ""
-                if chunk.data and chunk.data.choices:
-                    content = chunk.data.choices[0].delta.content or ""
-                if content:
-                    full_chunks.append(content)
-                    yield content
-                if chunk.data and getattr(chunk.data, "usage", None):
-                    u = chunk.data.usage
-                    p_tok = getattr(u, "prompt_tokens", 0) or 0
-                    c_tok = getattr(u, "completion_tokens", 0) or 0
-                    t_tok = getattr(u, "total_tokens", 0) or (p_tok + c_tok)
-                    if usage_collector is not None:
-                        usage_collector["prompt_tokens"] = p_tok
-                        usage_collector["completion_tokens"] = c_tok
-                        usage_collector["total_tokens"] = t_tok
+            try:
+                for chunk in stream_res:
+                    content = ""
+                    if chunk.data and chunk.data.choices:
+                        content = chunk.data.choices[0].delta.content or ""
+                    if content:
+                        full_chunks.append(content)
+                        yield content
+                    if chunk.data and getattr(chunk.data, "usage", None):
+                        u = chunk.data.usage
+                        p_tok = getattr(u, "prompt_tokens", 0) or 0
+                        c_tok = getattr(u, "completion_tokens", 0) or 0
+                        t_tok = getattr(u, "total_tokens", 0) or (p_tok + c_tok)
+                        if usage_collector is not None:
+                            usage_collector["prompt_tokens"] = p_tok
+                            usage_collector["completion_tokens"] = c_tok
+                            usage_collector["total_tokens"] = t_tok
+            except Exception as stream_iter_err:
+                err_str = str(stream_iter_err).lower()
+                # If stream broke before ANY chunk was yielded, attempt fallback model
+                if not full_chunks and (
+                    "429" in err_str
+                    or "rate_limited" in err_str
+                    or "invalid" in err_str
+                    or "timeout" in err_str
+                    or "timed out" in err_str
+                    or "connection" in err_str
+                ):
+                    if logger:
+                        logger.warning(
+                            "Mistral stream iteration failed before chunks (%s); trying fallback",
+                            stream_iter_err,
+                        )
+                    fallback = (
+                        MISTRAL_FALLBACK_GUARDIAN_MODEL
+                        if agent_type == "guardian"
+                        else MISTRAL_FALLBACK_SYNTHESIS_MODEL
+                    )
+                    fallback_stream = client.chat.stream(
+                        model=fallback,
+                        messages=messages,
+                        max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
+                        temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                        timeout_ms=DEFAULT_MISTRAL_TIMEOUT_MS,
+                    )
+                    for chunk in fallback_stream:
+                        content = ""
+                        if chunk.data and chunk.data.choices:
+                            content = chunk.data.choices[0].delta.content or ""
+                        if content:
+                            full_chunks.append(content)
+                            yield content
+                        if chunk.data and getattr(chunk.data, "usage", None):
+                            u = chunk.data.usage
+                            p_tok = getattr(u, "prompt_tokens", 0) or 0
+                            c_tok = getattr(u, "completion_tokens", 0) or 0
+                            t_tok = getattr(u, "total_tokens", 0) or (p_tok + c_tok)
+                            if usage_collector is not None:
+                                usage_collector["prompt_tokens"] = p_tok
+                                usage_collector["completion_tokens"] = c_tok
+                                usage_collector["total_tokens"] = t_tok
+                else:
+                    raise
 
             if usage_collector is not None and "total_tokens" not in usage_collector:
                 full_text = "".join(full_chunks)
