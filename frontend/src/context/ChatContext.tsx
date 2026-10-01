@@ -204,10 +204,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const stage = updateStage(pollCount);
       setCurrentStage(stage);
 
-      // Max total polling limit: 180 seconds (3 minutes)
-      if (pollCount > 180) {
+      // Max total polling limit: 240 seconds (4 minutes)
+      const MAX_POLL_SECONDS = 240;
+      if (pollCount > MAX_POLL_SECONDS) {
         if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
-        const errorMsg = 'Query processing timed out after 3 minutes.';
+        const errorMsg = 'Query processing timed out after 4 minutes. The synthesis may still be processing or the server is experiencing high load.';
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== targetSessionId) return s;
@@ -298,8 +299,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         consecutiveErrors++;
         console.warn(`Polling query ${queryId} attempt ${pollCount} failed (${consecutiveErrors} consecutive errors):`, err);
 
-        // Only abort if 10 CONSECUTIVE network/server failures occur
-        if (consecutiveErrors >= 10) {
+        // Only abort if 15 CONSECUTIVE network/server failures occur (15s resilience for temporary drops)
+        if (consecutiveErrors >= 15) {
           if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
           const errorMsg = err.message || 'Sustained network error while checking query status.';
           setSessions((prev) =>
@@ -401,11 +402,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       conversation_history: history,
     };
 
-    let streamStarted = false;
+    let tokensReceived = false;
 
     try {
       await client.streamQuery(queryPayload, (event) => {
-        streamStarted = true;
         if (event.query_id) {
           setCurrentQueryId(event.query_id);
           setSessions((prev) =>
@@ -447,6 +447,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             })
           );
         } else if (event.type === 'token' && event.text) {
+          tokensReceived = true;
           setSessions((prev) =>
             prev.map((s) => {
               if (s.id !== targetSessionId) return s;
@@ -486,9 +487,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
     } catch (streamErr: any) {
-      // If streaming had already started sending tokens, don't re-query; report stream error
-      if (streamStarted) {
-        console.error('Stream interrupted:', streamErr);
+      // If streaming had already started sending tokens to the user, don't re-query; report stream error
+      if (tokensReceived) {
+        console.error('Stream interrupted after tokens started:', streamErr);
         const errorMsg = streamErr.message || 'Streaming response interrupted.';
         setSessions((prev) =>
           prev.map((s) => {
@@ -509,8 +510,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // If streaming failed to establish connection, fallback smoothly to standard polling
-      console.warn('Streaming connection failed, falling back to polling:', streamErr);
+      // If stream was interrupted or dropped before any tokens arrived (e.g. during Guardian,
+      // Architect, Retrieval, or edge proxy network blip), fallback smoothly to standard polling
+      console.warn('Streaming connection failed or dropped before tokens arrived; falling back to polling:', streamErr);
       try {
         const res = await client.submitQuery(queryPayload);
         const queryId = res.query_id;
@@ -521,7 +523,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (s.id !== targetSessionId) return s;
             return {
               ...s,
-              messages: s.messages.map((msg) => (msg.id === assistantMsgId ? { ...msg, queryId } : msg)),
+              messages: s.messages.map((msg) =>
+                msg.id === assistantMsgId ? { ...msg, queryId, content: '', status: 'processing' } : msg
+              ),
             };
           })
         );
@@ -540,7 +544,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 if (msg.id === assistantMsgId) {
                   return {
                     ...msg,
-                    content: `❌ **Error**: ${errorMsg}`,
+                    content: `❌ **Connection Error**: ${errorMsg}. Please try submitting again.`,
                     status: 'failed',
                   };
                 }

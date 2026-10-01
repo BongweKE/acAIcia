@@ -324,7 +324,10 @@ def get_cached_embed_model(logger=None):
 # ─────────────────────────────────────────────────────────────────────────────
 # Mistral helpers
 # ─────────────────────────────────────────────────────────────────────────────
-def get_mistral_client():
+DEFAULT_MISTRAL_TIMEOUT_MS = int(os.environ.get("MISTRAL_TIMEOUT_MS", "210000"))
+
+
+def get_mistral_client(timeout_ms: Optional[int] = None):
     """Return a configured Mistral client or raise if the key is missing."""
     api_key = os.environ.get("MISTRAL_API_KEY")
     if not api_key:
@@ -333,19 +336,29 @@ def get_mistral_client():
         from mistralai.client import Mistral  # mistralai >= 1.x
     except ImportError:  # pragma: no cover - older SDK layout
         from mistralai import Mistral
-    return Mistral(api_key=api_key)
+    effective_timeout = timeout_ms if timeout_ms is not None else DEFAULT_MISTRAL_TIMEOUT_MS
+    try:
+        return Mistral(api_key=api_key, timeout_ms=effective_timeout)
+    except TypeError:
+        return Mistral(api_key=api_key)
 
 
 def mistral_complete(
-    prompt: str, model: str, max_tokens: int = 512, temperature: float = 0.0
+    prompt: str,
+    model: str,
+    max_tokens: int = 512,
+    temperature: float = 0.0,
+    timeout_ms: Optional[int] = None,
 ) -> str:
     """One-shot completion through Mistral — used for judges/classifiers."""
-    client = get_mistral_client()
+    client = get_mistral_client(timeout_ms=timeout_ms)
+    effective_timeout = timeout_ms if timeout_ms is not None else DEFAULT_MISTRAL_TIMEOUT_MS
     res = client.chat.complete(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
         temperature=temperature,
+        timeout_ms=effective_timeout,
     )
     return (res.choices[0].message.content or "").strip()
 
@@ -466,6 +479,7 @@ def build_llm_caller(
                     messages=messages,
                     max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                     temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                    timeout_ms=DEFAULT_MISTRAL_TIMEOUT_MS,
                 )
             except Exception as mistral_err:
                 err_str = str(mistral_err).lower()
@@ -473,6 +487,8 @@ def build_llm_caller(
                     "429" in err_str
                     or "rate_limited" in err_str
                     or "invalid" in err_str
+                    or "timeout" in err_str
+                    or "timed out" in err_str
                 ):
                     fallback = (
                         MISTRAL_FALLBACK_GUARDIAN_MODEL
@@ -484,6 +500,7 @@ def build_llm_caller(
                         messages=messages,
                         max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                         temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                        timeout_ms=DEFAULT_MISTRAL_TIMEOUT_MS,
                     )
                 else:
                     raise
@@ -532,6 +549,7 @@ def build_llm_caller(
                     api_key=api_key,
                     max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                     temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                    timeout=DEFAULT_MISTRAL_TIMEOUT_MS // 1000,
                 )
             except Exception as primary_err:
                 log.warning("LiteLLM primary call failed: %s. Trying backup.", primary_err)
@@ -771,6 +789,7 @@ def build_llm_stream_caller(
                         stream=True,
                         max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                         temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                        timeout=DEFAULT_MISTRAL_TIMEOUT_MS // 1000,
                     )
                     full_chunks = []
                     for chunk in stream_res:
@@ -804,6 +823,7 @@ def build_llm_stream_caller(
                     messages=messages,
                     max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                     temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                    timeout_ms=DEFAULT_MISTRAL_TIMEOUT_MS,
                 )
             except Exception as mistral_err:
                 err_str = str(mistral_err).lower()
@@ -811,6 +831,8 @@ def build_llm_stream_caller(
                     "429" in err_str
                     or "rate_limited" in err_str
                     or "invalid" in err_str
+                    or "timeout" in err_str
+                    or "timed out" in err_str
                 ):
                     fallback = (
                         MISTRAL_FALLBACK_GUARDIAN_MODEL
@@ -822,6 +844,7 @@ def build_llm_stream_caller(
                         messages=messages,
                         max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
                         temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                        timeout_ms=DEFAULT_MISTRAL_TIMEOUT_MS,
                     )
                 else:
                     raise

@@ -45,7 +45,7 @@ EVAL_CONFIG = {
     },
     "canary_max_violations": 1,
     "default_judge": "ministral-8b-latest",
-    "backend_timeout_sec": 120,
+    "backend_timeout_sec": 240,
     "poll_interval_sec": 2,
 }
 

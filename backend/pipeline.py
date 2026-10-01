@@ -473,7 +473,7 @@ def run_rag_query(
             architect_future = executor.submit(call_llm, architect_prompt, "architect")
 
             try:
-                guard_res = guardian_future.result()
+                guard_res = guardian_future.result(timeout=240.0)
                 telemetry["guardian_ms"] = int((time.time() - g_start) * 1000)
                 total_tokens += guard_res["tokens"]
                 guard_text = guard_res["text"]
@@ -514,7 +514,7 @@ def run_rag_query(
             telemetry["guardian_passed"] = True
 
             try:
-                arch_res = architect_future.result()
+                arch_res = architect_future.result(timeout=240.0)
                 telemetry["architect_ms"] = int((time.time() - a_start) * 1000)
                 total_tokens += arch_res["tokens"]
                 optimized_query = arch_res["text"]
@@ -1080,7 +1080,7 @@ def run_rag_query_stream(
             architect_future = executor.submit(call_llm, architect_prompt, "architect")
 
             try:
-                guard_res = guardian_future.result()
+                guard_res = guardian_future.result(timeout=240.0)
                 telemetry["guardian_ms"] = int((time.time() - g_start) * 1000)
                 guard_text = guard_res["text"]
             except Exception as e:
@@ -1125,7 +1125,7 @@ def run_rag_query_stream(
             telemetry["guardian_passed"] = True
 
             try:
-                arch_res = architect_future.result()
+                arch_res = architect_future.result(timeout=240.0)
                 telemetry["architect_ms"] = int((time.time() - a_start) * 1000)
                 optimized_query = arch_res["text"]
             except Exception as e:

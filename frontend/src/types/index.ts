@@ -290,7 +290,7 @@ export interface QueryStatusResponse {
 }
 
 export interface StreamEvent {
-  type: 'stage' | 'sources' | 'token' | 'done' | 'error';
+  type: 'stage' | 'sources' | 'token' | 'done' | 'error' | 'heartbeat';
   stage?: string;
   sources?: SourceChunk[];
   text?: string;
