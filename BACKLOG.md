@@ -104,7 +104,7 @@ flowchart TD
 
 ---
 
-#### Issue #21: Citation System Quality Fix (Prompt Parity + Source Reconciliation)
+#### ✅ Issue #21: [COMPLETED] Citation System Quality Fix (Prompt Parity + Source Reconciliation)
 - **Priority**: `priority:p0` | **Phase**: Sprint 0 | **Effort**: Small-Medium (2–3 days)
 - **Component**: Backend Pipeline (`backend/pipeline.py`), Frontend (`frontend/src/components/chat/MessageItem.tsx`, `SourceCard.tsx`)
 - **Problem Statement**:

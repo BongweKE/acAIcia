@@ -38,7 +38,7 @@ The `sources` array is constructed from retrieval results **before** synthesis, 
 - The LLM may cite only 2–3 of the 5 sources if the others are less relevant to the specific query angle.
 - There is currently no visual distinction between sources that were cited inline and sources that were merely retrieved.
 
-> **Known Issue (Backlog #21)**: A planned improvement will add "Cited" / "Retrieved" badges to Source Cards based on whether the source's author/year appears in the synthesized answer text. See [BACKLOG.md Issue #21](../BACKLOG.md) for the implementation plan.
+> **Implemented Solution (Issue #21)**: "Cited" / "Retrieved" badges have been added to Source Cards to visually indicate whether a source's author/year appears in the synthesized answer text. This is driven by the backend's `cited` flag on the source object, with a client-side regex fallback in `MessageItem.tsx`.
 
 ### Streaming Source Delivery
 In SSE streaming mode, the backend emits a `sources` event **before** synthesis begins ([`pipeline.py:1231`](../backend/pipeline.py)). This allows the frontend to render Source Cards immediately while answer tokens stream below. The sources array is attached to the assistant message via `ChatContext.tsx` as soon as the `sources` event arrives.

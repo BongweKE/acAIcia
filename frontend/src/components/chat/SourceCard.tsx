@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { SourceChunk } from '../../types';
-import { ExternalLink, BookOpen, ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { ExternalLink, BookOpen, ChevronDown, ChevronUp, FileText, Check, Library } from 'lucide-react';
 
 interface SourceCardProps {
   source: SourceChunk;
@@ -27,11 +27,25 @@ export const SourceCard: React.FC<SourceCardProps> = ({ source }) => {
             <h4 className="text-xs font-semibold text-foreground leading-snug line-clamp-2">
               {source.title}
             </h4>
-            <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-2 mt-1 mb-1 text-[11px] text-muted-foreground">
               <span className="truncate max-w-[200px]">{source.authors}</span>
               <span>•</span>
               <span className="font-mono text-accent font-medium">{source.year}</span>
             </div>
+            
+            {source.cited !== undefined && (
+              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold mt-1 ${
+                source.cited
+                  ? 'bg-accent/15 text-accent border border-accent/30'
+                  : 'bg-muted text-muted-foreground border border-border'
+              }`}>
+                {source.cited ? (
+                  <><Check className="w-2.5 h-2.5" /> Cited</>
+                ) : (
+                  <><Library className="w-2.5 h-2.5" /> Retrieved</>
+                )}
+              </span>
+            )}
           </div>
         </div>
 
