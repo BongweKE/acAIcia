@@ -850,22 +850,69 @@ def build_llm_stream_caller(
                     raise
 
             full_chunks = []
-            for chunk in stream_res:
-                content = ""
-                if chunk.data and chunk.data.choices:
-                    content = chunk.data.choices[0].delta.content or ""
-                if content:
-                    full_chunks.append(content)
-                    yield content
-                if chunk.data and getattr(chunk.data, "usage", None):
-                    u = chunk.data.usage
-                    p_tok = getattr(u, "prompt_tokens", 0) or 0
-                    c_tok = getattr(u, "completion_tokens", 0) or 0
-                    t_tok = getattr(u, "total_tokens", 0) or (p_tok + c_tok)
-                    if usage_collector is not None:
-                        usage_collector["prompt_tokens"] = p_tok
-                        usage_collector["completion_tokens"] = c_tok
-                        usage_collector["total_tokens"] = t_tok
+            try:
+                for chunk in stream_res:
+                    content = ""
+                    if chunk.data and chunk.data.choices:
+                        content = chunk.data.choices[0].delta.content or ""
+                    if content:
+                        full_chunks.append(content)
+                        yield content
+                    if chunk.data and getattr(chunk.data, "usage", None):
+                        u = chunk.data.usage
+                        p_tok = getattr(u, "prompt_tokens", 0) or 0
+                        c_tok = getattr(u, "completion_tokens", 0) or 0
+                        t_tok = getattr(u, "total_tokens", 0) or (p_tok + c_tok)
+                        if usage_collector is not None:
+                            usage_collector["prompt_tokens"] = p_tok
+                            usage_collector["completion_tokens"] = c_tok
+                            usage_collector["total_tokens"] = t_tok
+            except Exception as stream_iter_err:
+                err_str = str(stream_iter_err).lower()
+                # If stream broke before ANY chunk was yielded, attempt fallback model
+                if not full_chunks and (
+                    "429" in err_str
+                    or "rate_limited" in err_str
+                    or "invalid" in err_str
+                    or "timeout" in err_str
+                    or "timed out" in err_str
+                    or "connection" in err_str
+                ):
+                    if logger:
+                        logger.warning(
+                            "Mistral stream iteration failed before chunks (%s); trying fallback",
+                            stream_iter_err,
+                        )
+                    fallback = (
+                        MISTRAL_FALLBACK_GUARDIAN_MODEL
+                        if agent_type == "guardian"
+                        else MISTRAL_FALLBACK_SYNTHESIS_MODEL
+                    )
+                    fallback_stream = client.chat.stream(
+                        model=fallback,
+                        messages=messages,
+                        max_tokens=AGENT_MAX_TOKENS.get(agent_type, 1024),
+                        temperature=AGENT_TEMPERATURE.get(agent_type, 0.7),
+                        timeout_ms=DEFAULT_MISTRAL_TIMEOUT_MS,
+                    )
+                    for chunk in fallback_stream:
+                        content = ""
+                        if chunk.data and chunk.data.choices:
+                            content = chunk.data.choices[0].delta.content or ""
+                        if content:
+                            full_chunks.append(content)
+                            yield content
+                        if chunk.data and getattr(chunk.data, "usage", None):
+                            u = chunk.data.usage
+                            p_tok = getattr(u, "prompt_tokens", 0) or 0
+                            c_tok = getattr(u, "completion_tokens", 0) or 0
+                            t_tok = getattr(u, "total_tokens", 0) or (p_tok + c_tok)
+                            if usage_collector is not None:
+                                usage_collector["prompt_tokens"] = p_tok
+                                usage_collector["completion_tokens"] = c_tok
+                                usage_collector["total_tokens"] = t_tok
+                else:
+                    raise
 
             if usage_collector is not None and "total_tokens" not in usage_collector:
                 full_text = "".join(full_chunks)

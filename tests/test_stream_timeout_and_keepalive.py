@@ -88,6 +88,27 @@ class TestStreamTimeoutAndKeepalive(unittest.TestCase):
             for call_args in mock_client.chat.stream.call_args_list:
                 self.assertEqual(call_args.kwargs.get("timeout_ms"), DEFAULT_MISTRAL_TIMEOUT_MS)
 
+    def test_call_llm_stream_handles_stream_iteration_timeout_fallback(self):
+        mock_client = MagicMock()
+
+        def failing_iter():
+            raise Exception("Read timeout during chunk transfer")
+            yield  # pragma: no cover
+
+        mock_fallback_chunk = MagicMock()
+        mock_fallback_chunk.data.choices = [MagicMock()]
+        mock_fallback_chunk.data.choices[0].delta.content = "Chunk after iter failure"
+        mock_fallback_chunk.data.usage = None
+
+        mock_client.chat.stream.side_effect = [failing_iter(), [mock_fallback_chunk]]
+
+        with patch("backend.core.get_mistral_client", return_value=mock_client):
+            stream_caller = build_llm_stream_caller(lambda: "mistral")
+            chunks = list(stream_caller("Test prompt", "synthesis"))
+
+            self.assertIn("Chunk after iter failure", chunks)
+            self.assertEqual(mock_client.chat.stream.call_count, 2)
+
     # ─────────────────────────────────────────────────────────────────────────
     # 2. SSE Keepalive Heartbeat & Initial Ping
     # ─────────────────────────────────────────────────────────────────────────
@@ -137,9 +158,37 @@ class TestStreamTimeoutAndKeepalive(unittest.TestCase):
         self.assertIn(": keepalive\n\n", res.text)
         self.assertIn('"text": "After quiet"', res.text)
 
+    @patch("backend.server.MAX_STREAM_TIMEOUT_SEC", 0.08)
+    @patch("backend.server.STREAM_KEEPALIVE_INTERVAL_SEC", 0.03)
+    @patch("backend.server.STORE")
     @patch("backend.server.run_rag_query_stream")
     @patch("backend.server.get_cached_embed_model")
-    def test_stream_handles_worker_exception_gracefully(self, mock_embed, mock_stream):
+    def test_stream_times_out_and_writes_failed_status_when_exceeding_max_stream_timeout(
+        self, mock_embed, mock_stream, mock_store
+    ):
+        mock_embed.return_value = MagicMock()
+
+        def hanging_worker(*args, **kwargs):
+            time.sleep(0.2)
+            yield {"type": "token", "text": "Too late"}
+
+        mock_stream.side_effect = hanging_worker
+
+        res = self.client.post("/query/stream", json={"query": "Hanging query"})
+        self.assertEqual(res.status_code, 200)
+        self.assertIn(": keepalive\n\n", res.text)
+        self.assertIn('"type": "error"', res.text)
+        self.assertIn("Stream processing timed out", res.text)
+        # Verify failure status was written to STORE
+        mock_store.write_status.assert_called()
+        last_call_args = mock_store.write_status.call_args[0]
+        self.assertEqual(last_call_args[1].get("status"), "failed")
+        self.assertIn("Stream processing timed out", last_call_args[1].get("error", ""))
+
+    @patch("backend.server.STORE")
+    @patch("backend.server.run_rag_query_stream")
+    @patch("backend.server.get_cached_embed_model")
+    def test_stream_handles_worker_exception_gracefully(self, mock_embed, mock_stream, mock_store):
         mock_embed.return_value = MagicMock()
 
         def faulty_events(*args, **kwargs):
@@ -153,6 +202,7 @@ class TestStreamTimeoutAndKeepalive(unittest.TestCase):
         self.assertIn(": ping\n\n", res.text)
         self.assertIn('"type": "error"', res.text)
         self.assertIn("Database connection suddenly dropped", res.text)
+        mock_store.write_status.assert_called()
 
     # ─────────────────────────────────────────────────────────────────────────
     # 3. Evaluation Engine Timeout

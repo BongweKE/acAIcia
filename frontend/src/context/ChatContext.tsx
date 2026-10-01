@@ -490,7 +490,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // If streaming had already started sending tokens to the user, don't re-query; report stream error
       if (tokensReceived) {
         console.error('Stream interrupted after tokens started:', streamErr);
-        const errorMsg = streamErr.message || 'Streaming response interrupted.';
+        const rawErr = streamErr?.message || '';
+        const isNetworkErr = rawErr.toLowerCase().includes('network') || rawErr.toLowerCase().includes('fetch');
+        const errorMsg = isNetworkErr
+          ? 'Network connection was interrupted while receiving the answer. Please check your connection or retry.'
+          : (rawErr || 'Streaming response interrupted.');
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== targetSessionId) return s;
@@ -498,7 +502,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ...s,
               messages: s.messages.map((msg) =>
                 msg.id === assistantMsgId
-                  ? { ...msg, content: (msg.content || '') + `\n\n❌ **Stream Error**: ${errorMsg}`, status: 'failed' }
+                  ? { ...msg, content: (msg.content || '') + `\n\n❌ **Stream Interrupted**: ${errorMsg}`, status: 'failed' }
                   : msg
               ),
             };
@@ -510,9 +514,34 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
+      // If the error was a genuine timeout (3-4 minutes reached), do NOT re-query or restart
+      const errStr = (streamErr?.message || '').toLowerCase();
+      const isTimeout = errStr.includes('timed out') || errStr.includes('timeout');
+      if (isTimeout) {
+        const timeoutMsg = 'Query processing timed out after 4 minutes. The synthesis may still be processing or the server is experiencing high load.';
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== targetSessionId) return s;
+            return {
+              ...s,
+              messages: s.messages.map((msg) =>
+                msg.id === assistantMsgId
+                  ? { ...msg, content: `❌ **Timeout Error**: ${timeoutMsg}`, status: 'failed' }
+                  : msg
+              ),
+            };
+          })
+        );
+        addToast(timeoutMsg, 'error');
+        setIsProcessing(false);
+        setCurrentStage(null);
+        return;
+      }
+
       // If stream was interrupted or dropped before any tokens arrived (e.g. during Guardian,
       // Architect, Retrieval, or edge proxy network blip), fallback smoothly to standard polling
       console.warn('Streaming connection failed or dropped before tokens arrived; falling back to polling:', streamErr);
+      addToast('Streaming interrupted. Continuing query in background...', 'info');
       try {
         const res = await client.submitQuery(queryPayload);
         const queryId = res.query_id;
@@ -534,7 +563,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         pollQueryStatus(queryId, assistantMsgId, targetSessionId);
       } catch (err: any) {
         console.error('Failed to submit query fallback:', err);
-        const errorMsg = err.message || 'Failed to submit query to backend server.';
+        const rawErr = err?.message || '';
+        const isNetworkErr = rawErr.toLowerCase().includes('network') || rawErr.toLowerCase().includes('fetch');
+        const errorMsg = isNetworkErr
+          ? 'Could not connect to the research server. Please check your network connection and try again.'
+          : (rawErr || 'Failed to submit query to backend server.');
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== targetSessionId) return s;
@@ -544,7 +577,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 if (msg.id === assistantMsgId) {
                   return {
                     ...msg,
-                    content: `❌ **Connection Error**: ${errorMsg}. Please try submitting again.`,
+                    content: `❌ **Connection Error**: ${errorMsg}`,
                     status: 'failed',
                   };
                 }
@@ -555,6 +588,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         );
         addToast(errorMsg, 'error');
         setIsProcessing(false);
+        setCurrentQueryId(null);
         setCurrentStage(null);
       }
     }
