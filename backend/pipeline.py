@@ -88,7 +88,7 @@ def strip_trailing_references(text: str) -> str:
     import re
     # Match a trailing references-like heading followed by content to end of string.
     # The heading must appear after a blank line and use common bibliography titles.
-    pattern = r'\n\s*(?:#{1,4}\s*)?(?:References|Bibliography|Sources Cited|Works Cited|Literature Cited|Reference List)\s*\n.*'
+    pattern = r'\n\s*(?:#{1,4}\s*|\*\*?)?(?:References|Bibliography|Sources Cited|Works Cited|Literature Cited|Reference List)[:\*]*\s*\n.*'
     cleaned = re.split(pattern, text, maxsplit=1, flags=re.IGNORECASE | re.DOTALL)[0]
     return cleaned.rstrip()
 
@@ -105,7 +105,7 @@ def reconcile_sources_with_citations(
     import re
     # Extract all [Author(s), Year] patterns from the synthesis text
     citation_tags = re.findall(
-        r'\[([A-Za-z\u00C0-\u024F\-\s]+?(?:\s+et\s+al\.)?),?\s*(\d{4})\]',
+        r'\[([A-Za-z\u00C0-\u024F\-\s\'.&]+?(?:\s+et\s+al\.)?),?\s*(\d{4})\]',
         synth_text
     )
     
